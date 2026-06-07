@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 
 public record RealtimeClientSecretRequest(
         @NotBlank
-        String agentId
+        String agentId,
+        boolean autoKoEn
 ) {
 }

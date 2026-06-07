@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -27,16 +28,35 @@ public class RealtimeSessionService {
     public RealtimeClientSecretResponse createClientSecret(RealtimeClientSecretRequest request) {
         requireOpenAiApiKey();
         LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
+        String instructions = agentType.systemPrompt();
+        Map<String, Object> transcription = request.autoKoEn()
+                ? Map.of(
+                        "model", "gpt-4o-mini-transcribe",
+                        "language", "en",
+                        "prompt", "Translate Korean speech into natural English text. If the speaker uses English, transcribe it as English. Return only English."
+                )
+                : Map.of("model", "gpt-4o-mini-transcribe");
+
+        if (request.autoKoEn()) {
+            instructions = instructions + " When the learner speaks Korean, understand it as Korean input for English practice: translate their meaning into natural English internally, show or use the English phrasing, and respond in English unless they explicitly ask otherwise.";
+        }
+
+        Map<String, Object> audioInput = new HashMap<>();
+        audioInput.put("transcription", transcription);
+        if (request.autoKoEn()) {
+            audioInput.put("turn_detection", Map.of(
+                    "type", "server_vad",
+                    "create_response", false
+            ));
+        }
 
         Map<String, Object> body = Map.of(
                 "session", Map.of(
                         "type", "realtime",
                         "model", realtimeProperties.model(),
-                        "instructions", agentType.systemPrompt(),
+                        "instructions", instructions,
                         "audio", Map.of(
-                                "input", Map.of(
-                                        "transcription", Map.of("model", "gpt-4o-mini-transcribe")
-                                ),
+                                "input", audioInput,
                                 "output", Map.of("voice", realtimeProperties.voice())
                         )
                 )

@@ -3,6 +3,8 @@ package com.cj.englishagenthub.ai.presentation;
 import com.cj.englishagenthub.ai.application.AiChatService;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -27,6 +29,12 @@ public class AiChatController {
     @Operation(summary = "AI 텍스트 채팅")
     public AiChatMessageResponse chat(@Valid @RequestBody AiChatMessageRequest request) {
         return aiChatService.chat(request);
+    }
+
+    @PostMapping("/translate-to-english")
+    @Operation(summary = "영어 학습용 한영 변환")
+    public TranslateToEnglishResponse translateToEnglish(@Valid @RequestBody TranslateToEnglishRequest request) {
+        return aiChatService.translateToEnglish(request);
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

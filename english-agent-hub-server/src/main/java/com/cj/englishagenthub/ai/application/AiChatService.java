@@ -3,6 +3,8 @@ package com.cj.englishagenthub.ai.application;
 import com.cj.englishagenthub.ai.domain.LearningAgentType;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishResponse;
 import com.cj.englishagenthub.common.exception.BusinessException;
 import com.cj.englishagenthub.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +65,28 @@ public class AiChatService {
                 .stream()
                 .content()
                 .filter(StringUtils::hasText);
+    }
+
+    public TranslateToEnglishResponse translateToEnglish(TranslateToEnglishRequest request) {
+        requireOpenAiApiKey();
+
+        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
+        if (builder == null) {
+            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
+        }
+
+        String content = builder.build()
+                .prompt()
+                .system("Translate the user's message into natural English for an English learning chat. If it is already English, lightly clean up obvious speech recognition noise. Return only the English sentence, with no explanation.")
+                .user(request.text())
+                .call()
+                .content();
+
+        if (!StringUtils.hasText(content)) {
+            throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+        }
+
+        return new TranslateToEnglishResponse(content.trim());
     }
 
     private void requireOpenAiApiKey() {

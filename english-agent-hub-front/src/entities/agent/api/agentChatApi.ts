@@ -21,6 +21,10 @@ export type RealtimeClientSecretResponse = {
   raw: Record<string, unknown>;
 };
 
+export type TranslateToEnglishResponse = {
+  text: string;
+};
+
 async function refreshTokens(): Promise<string> {
   const refreshToken = tokenStorage.getRefresh();
   if (!refreshToken) throw new Error("no refresh token");
@@ -114,8 +118,13 @@ export const agentChatApi = {
     }
   },
 
-  createRealtimeClientSecret: (agentId: string) =>
+  createRealtimeClientSecret: (agentId: string, autoKoEn = false) =>
     api
-      .post<RealtimeClientSecretResponse>("/api/realtime/client-secret", { agentId })
+      .post<RealtimeClientSecretResponse>("/api/realtime/client-secret", { agentId, autoKoEn })
+      .then((r) => r.data),
+
+  translateToEnglish: (text: string) =>
+    api
+      .post<TranslateToEnglishResponse>("/api/ai/translate-to-english", { text })
       .then((r) => r.data),
 };
