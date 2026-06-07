@@ -5,6 +5,7 @@ import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
+import com.cj.englishagenthub.ai.presentation.dto.NewsResponse;
 import com.cj.englishagenthub.ai.presentation.dto.SpeechRequest;
 import com.cj.englishagenthub.ai.presentation.dto.TranscribeResponse;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
@@ -68,6 +69,12 @@ public class AiChatController {
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "language", required = false) String language) {
         return aiChatService.transcribe(file, language);
+    }
+
+    @GetMapping("/news")
+    @Operation(summary = "오늘의 뉴스 헤드라인")
+    public NewsResponse news(@RequestParam(value = "lang", required = false) String lang) {
+        return aiChatService.fetchNews(lang);
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

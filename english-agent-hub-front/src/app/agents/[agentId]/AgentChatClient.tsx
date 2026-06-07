@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bot, Languages, Mic, MicOff, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
+import { ArrowLeft, Bot, Languages, Mic, MicOff, Newspaper, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
 import { agentChatApi } from "@/entities/agent/api/agentChatApi";
 import type { LearningAgent } from "@/entities/agent/model/learningAgents";
 import { toast, toastError } from "@/shared/lib/toast";
@@ -131,20 +131,131 @@ function getExpressionSource(message: ChatMessage) {
   return message.sourceText?.trim() ?? "";
 }
 
-function getPracticeSentence(feedback: ExpressionFeedback | null) {
-  if (!feedback?.content) return feedback?.source ?? "";
+function getExpressionSuggestions(feedback: ExpressionFeedback | null): string[] {
+  if (!feedback?.content) return [];
+  const marker = "자연스러운 표현:";
+  const start = feedback.content.indexOf(marker);
+  if (start < 0) return [];
 
-  const marker = "바로 쓰기:";
-  const markerIndex = feedback.content.indexOf(marker);
-  if (markerIndex < 0) return feedback.source;
+  const after = feedback.content.slice(start + marker.length);
+  const stops = ["왜 더 자연스러운가", "바로 쓰기"]
+    .map((m) => after.indexOf(m))
+    .filter((index) => index >= 0);
+  const end = stops.length ? Math.min(...stops) : after.length;
 
-  const afterMarker = feedback.content.slice(markerIndex + marker.length).trim();
-  const firstLine = afterMarker.split("\n").map((line) => line.trim()).find(Boolean);
-  return firstLine?.replace(/^[-•]\s*/, "").replace(/^["“”]|["“”]$/g, "") || feedback.source;
+  return after
+    .slice(0, end)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[-•]/.test(line))
+    .map((line) => line.replace(/^[-•]\s*/, "").replace(/^["“”]+|["“”]+$/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function getExpressionReason(feedback: ExpressionFeedback | null): string {
+  if (!feedback?.content) return "";
+  const marker = "왜 더 자연스러운가";
+  const start = feedback.content.indexOf(marker);
+  if (start < 0) return "";
+
+  let after = feedback.content.slice(start + marker.length).replace(/^[:：]\s*/, "");
+  const stop = after.indexOf("바로 쓰기");
+  if (stop >= 0) after = after.slice(0, stop);
+  return after.trim();
 }
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function TypingDots() {
+  return (
+    <span className="flex items-center gap-1 py-1" aria-label="응답 작성 중">
+      <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
+      <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
+      <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50" />
+    </span>
+  );
+}
+
+type AgentInstructions = {
+  style: string;
+  character: string;
+  knowledge: string;
+  news: string;
+  schedule: string;
+};
+
+const EMPTY_INSTRUCTIONS: AgentInstructions = {
+  style: "",
+  character: "",
+  knowledge: "",
+  news: "",
+  schedule: "",
+};
+
+const INSTRUCTION_TABS: { key: keyof AgentInstructions; label: string; placeholder: string }[] = [
+  {
+    key: "style",
+    label: "대화 스타일",
+    placeholder:
+      "예: 친구처럼 편한 반말 톤으로, 쉬운 단어만 써서 1~2문장으로 짧게 답해줘. 가끔 더 자연스러운 표현을 한 줄 알려줘.",
+  },
+  {
+    key: "character",
+    label: "캐릭터 정보",
+    placeholder: "예: 이름은 Mike, 29살, 취미는 자전거 타기, 직업은 야구 선수.",
+  },
+  {
+    key: "knowledge",
+    label: "알고 있는 지식",
+    placeholder: "예: 스타크래프트 테란 유저. 한국 음식을 좋아함. 서울에 한 번 가봤음.",
+  },
+  {
+    key: "news",
+    label: "오늘의 뉴스",
+    placeholder:
+      "예: 오늘 한국에 첫눈이 왔다. 손흥민이 어제 골을 넣었다. — 대화 중 자연스럽게 화제로 꺼내줘.",
+  },
+  {
+    key: "schedule",
+    label: "캐릭터 근황",
+    placeholder:
+      "예: 오늘 아침 자전거 탔음. 어제 경기에서 홈런 침. 요즘 한국어 공부 중. — 대화 중 자기 근황으로 자연스럽게 풀어줘.",
+  },
+];
+
+function composeInstructions(instr: AgentInstructions): string {
+  const parts: string[] = [];
+  if (instr.style.trim()) parts.push(`[Conversation style]\n${instr.style.trim()}`);
+  if (instr.character.trim()) parts.push(`[Character]\n${instr.character.trim()}`);
+  if (instr.knowledge.trim()) parts.push(`[Background knowledge]\n${instr.knowledge.trim()}`);
+  if (instr.news.trim()) parts.push(`[Today's news to bring up naturally]\n${instr.news.trim()}`);
+  if (instr.schedule.trim()) parts.push(`[Your (the character's) recent updates to mention naturally]\n${instr.schedule.trim()}`);
+  return parts.join("\n\n");
+}
+
+function parseStoredInstructions(stored: string | null): AgentInstructions {
+  if (!stored) return EMPTY_INSTRUCTIONS;
+  try {
+    const parsed = JSON.parse(stored);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const read = (key: keyof AgentInstructions) =>
+        typeof parsed[key] === "string" ? (parsed[key] as string) : "";
+      const result: AgentInstructions = {
+        style: read("style"),
+        character: read("character"),
+        knowledge: read("knowledge"),
+        news: read("news"),
+        schedule: read("schedule"),
+      };
+      if (Object.values(result).some((value) => value.trim())) return result;
+    }
+  } catch {
+    // legacy: a plain free-text string was stored — treat it as conversation style
+  }
+  return { ...EMPTY_INSTRUCTIONS, style: stored };
 }
 
 const REALTIME_IDLE_LIMIT_MS = 120_000;
@@ -164,10 +275,12 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [inputListening, setInputListening] = useState(false);
   const [inputTranscribing, setInputTranscribing] = useState(false);
-  const [instructions, setInstructions] = useState("");
+  const [instr, setInstr] = useState<AgentInstructions>(EMPTY_INSTRUCTIONS);
   const [presets, setPresets] = useState<LearningAgent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [instructionsDraft, setInstructionsDraft] = useState("");
+  const [instrDraft, setInstrDraft] = useState<AgentInstructions>(EMPTY_INSTRUCTIONS);
+  const [settingsTab, setSettingsTab] = useState<keyof AgentInstructions>("style");
+  const [newsLoading, setNewsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -215,8 +328,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
         // presets are optional; ignore
       });
 
-    const storedInstructions = window.localStorage.getItem(`agent-chat:instructions:${agentId}`);
-    setInstructions(storedInstructions ?? "");
+    setInstr(parseStoredInstructions(window.localStorage.getItem(`agent-chat:instructions:${agentId}`)));
 
     return () => {
       mounted = false;
@@ -391,11 +503,11 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
     );
   };
 
-  const applyInstructions = (value: string) => {
-    const next = value.trim();
-    setInstructions(next);
-    if (next) {
-      window.localStorage.setItem(`agent-chat:instructions:${agentId}`, next);
+  const applyInstructions = (value: AgentInstructions) => {
+    setInstr(value);
+    const composed = composeInstructions(value);
+    if (composed) {
+      window.localStorage.setItem(`agent-chat:instructions:${agentId}`, JSON.stringify(value));
     } else {
       window.localStorage.removeItem(`agent-chat:instructions:${agentId}`);
     }
@@ -405,7 +517,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       dataChannel.send(
         JSON.stringify({
           type: "session.update",
-          session: { type: "realtime", instructions: buildRealtimeInstructions(next) },
+          session: { type: "realtime", instructions: buildRealtimeInstructions(composed) },
         })
       );
       toast.success("실시간 세션에 새 지침을 반영했습니다.");
@@ -413,14 +525,36 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
   };
 
   const openSettings = () => {
-    setInstructionsDraft(instructions || agent?.systemPrompt || "");
+    setInstrDraft(instr);
+    setSettingsTab("style");
     setSettingsOpen(true);
   };
 
   const saveSettings = () => {
-    applyInstructions(instructionsDraft);
+    applyInstructions(instrDraft);
     setSettingsOpen(false);
     toast.success("에이전트 지침을 저장했습니다.");
+  };
+
+  const loadNews = async () => {
+    setNewsLoading(true);
+    try {
+      const { items } = await agentChatApi.fetchNews("ko");
+      if (!items.length) {
+        toast.info("가져올 뉴스가 없습니다.");
+        return;
+      }
+      const formatted = ["오늘의 뉴스 (대화 중 자연스럽게 화제로 꺼내줘):", ...items.map((title, index) => `${index + 1}. ${title}`)].join(
+        "\n"
+      );
+      setInstrDraft((draft) => ({ ...draft, news: formatted }));
+      setSettingsTab("news");
+      toast.success(`오늘의 뉴스 ${items.length}개를 채웠습니다.`);
+    } catch (error) {
+      toastError(error, "뉴스를 가져오지 못했습니다.");
+    } finally {
+      setNewsLoading(false);
+    }
   };
 
   const stopSpeaking = () => {
@@ -492,7 +626,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
         try {
           const { text } = await agentChatApi.transcribeAudio(blob);
           const trimmed = text?.trim();
-          if (trimmed) setInput((current) => (current ? `${current} ${trimmed}` : trimmed));
+          if (trimmed) setInput(trimmed);
           else toast.info("음성에서 인식된 내용이 없습니다.");
         } catch (error) {
           toastError(error, "음성 인식에 실패했습니다.");
@@ -649,7 +783,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
     ]);
 
     try {
-      await agentChatApi.streamMessage({ agentId: agent.id, message: modelText, instructions: instructions || undefined }, (delta) => {
+      await agentChatApi.streamMessage({ agentId: agent.id, message: modelText, instructions: composeInstructions(instr) || undefined }, (delta) => {
         responseText += delta;
         setMessages((current) =>
           current.map((item) =>
@@ -780,7 +914,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
     setVoiceStatus("connecting");
     try {
-      const tokenResponse = await agentChatApi.createRealtimeClientSecret(agent.id, autoKoEnOverride, instructions || undefined);
+      const tokenResponse = await agentChatApi.createRealtimeClientSecret(agent.id, autoKoEnOverride, composeInstructions(instr) || undefined);
       const clientSecret = extractClientSecret(tokenResponse.raw);
       if (!clientSecret) throw new Error("Realtime client secret이 응답에 없습니다.");
 
@@ -949,14 +1083,6 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
     void requestExpressionFeedbackForText(getExpressionSource(message));
   };
 
-  const usePracticeSentence = () => {
-    const practiceSentence = getPracticeSentence(expressionFeedback);
-    if (!practiceSentence) return;
-
-    setInput(practiceSentence);
-    textAreaRef.current?.focus();
-  };
-
   const toggleExpressionVoiceInput = () => {
     if (expressionListening) {
       expressionRecognitionRef.current?.stop();
@@ -1014,6 +1140,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
   }
 
   const accentClass = getAgentAccentClass(agent.id);
+  const hasCustomInstructions = composeInstructions(instr).length > 0;
 
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/25">
@@ -1036,13 +1163,13 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
               onClick={openSettings}
               title="에이전트 지침(페르소나) 설정"
               className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition-colors ${
-                instructions
+                hasCustomInstructions
                   ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
                   : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
               <Settings2 className="h-3.5 w-3.5" />
-              {instructions ? "지침 (사용자 설정)" : "지침 설정"}
+              {hasCustomInstructions ? "지침 (사용자 설정)" : "지침 설정"}
             </button>
             <button
               type="button"
@@ -1067,36 +1194,36 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
         <section className="mb-4 rounded-lg border border-border bg-background px-4 py-3">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md border ${accentClass}`}>
+            <button
+              type="button"
+              onClick={openSettings}
+              title="에이전트 지침(페르소나) 변경"
+              className="group flex min-w-0 items-center gap-3 rounded-md text-left transition-colors hover:bg-accent/40"
+            >
+              <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md border transition-transform group-hover:scale-105 ${accentClass}`}>
                 <Bot className="h-5 w-5" />
+                <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm group-hover:text-primary">
+                  <Settings2 className="h-2.5 w-2.5" />
+                </span>
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-lg font-bold tracking-tight">{agent.title}</h1>
+                  <h1 className="text-lg font-bold tracking-tight group-hover:text-primary">{agent.title}</h1>
                   <span className="text-xs font-semibold text-primary">{agent.subtitle}</span>
                   <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
                     {agent.level}
                   </span>
+                  {hasCustomInstructions && (
+                    <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      사용자 지침
+                    </span>
+                  )}
                 </div>
                 <p className="mt-1 truncate text-sm text-muted-foreground">{agent.sessionGoal}</p>
               </div>
-            </div>
+            </button>
 
             <div className="flex flex-wrap items-center gap-2">
-              {agent.starterPrompts.slice(0, 3).map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => {
-                    setInput(prompt);
-                    textAreaRef.current?.focus();
-                  }}
-                  className="inline-flex h-8 max-w-[220px] items-center truncate rounded-md border border-border px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
-                >
-                  {prompt}
-                </button>
-              ))}
               <label className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2.5 text-xs font-semibold text-muted-foreground">
                 <Languages className="h-3.5 w-3.5 text-primary" />
                 자동 번역
@@ -1180,8 +1307,35 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
             </header>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 pb-8">
+              {messages.length === 0 && !sending && (
+                <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-full border ${accentClass}`}>
+                    <Bot className="h-6 w-6" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    아래 문장으로 시작하거나, 자유롭게 말을 걸어보세요.
+                  </p>
+                  <div className="flex max-w-md flex-wrap justify-center gap-2">
+                    {agent.starterPrompts.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => {
+                          setInput(prompt);
+                          textAreaRef.current?.focus();
+                        }}
+                        className="inline-flex items-center rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {messages.map((message) => {
                 const isLearner = message.role === "learner";
+                const isTyping =
+                  !isLearner && message.streaming && !message.text.trim() && !message.sourceText;
 
                 return (
                   <div
@@ -1220,11 +1374,13 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                             </div>
                           </div>
                         </div>
+                      ) : isTyping ? (
+                        <TypingDots />
                       ) : (
                         message.text
                       )}
                       {isLearner && (
-                        <div className="mt-3 border-t border-primary-foreground/20 pt-2">
+                        <div className="mt-3 flex flex-wrap gap-2 border-t border-primary-foreground/20 pt-2">
                           <button
                             type="button"
                             onClick={() => void requestExpressionFeedback(message)}
@@ -1233,6 +1389,25 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                             <WandSparkles className="h-3.5 w-3.5" />
                             자연스러운 표현
                           </button>
+                          {getExpressionSource(message).trim() && (
+                            <button
+                              type="button"
+                              onClick={() => void speakMessage(message.id, getExpressionSource(message))}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary-foreground/10 px-2 text-xs font-semibold text-primary-foreground/85 transition-colors hover:bg-primary-foreground/20"
+                            >
+                              {speakingMessageId === message.id ? (
+                                <>
+                                  <Square className="h-3.5 w-3.5" />
+                                  중지
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="h-3.5 w-3.5" />
+                                  듣기
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       )}
                       {!isLearner && !message.streaming && (message.sourceText ?? message.text).trim() && (
@@ -1260,13 +1435,16 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                   </div>
                 );
               })}
-              {sending && (
-                <div className="flex justify-start">
-                  <div className="rounded-lg border border-border bg-muted/35 px-4 py-3 text-sm text-muted-foreground">
-                    응답 생성 중...
+              {sending &&
+                !messages.some(
+                  (m) => m.role === "agent" && m.streaming && !m.text.trim() && !m.sourceText
+                ) && (
+                  <div className="flex justify-start">
+                    <div className="rounded-lg border border-border bg-muted/35 px-4 py-3">
+                      <TypingDots />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
               <div ref={messagesEndRef} aria-hidden="true" />
             </div>
 
@@ -1310,7 +1488,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                 </button>
               </div>
 
-              <div className="flex items-end gap-2 rounded-lg border border-border bg-muted/25 p-2">
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/25 p-2">
                 <textarea
                   ref={textAreaRef}
                   rows={2}
@@ -1321,17 +1499,18 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                       void sendMessage();
                     }
                   }}
-                  placeholder="영어나 한국어로 편하게 답변해보세요."
-                  className="min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                  placeholder="영어나 한국어로 편하게 답변해보세요. (⌘/Ctrl + Enter 전송)"
+                  className="min-h-12 flex-1 resize-none self-stretch bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground"
                 />
                 <button
                   type="button"
                   aria-label="메시지 전송"
                   onClick={sendMessage}
                   disabled={!input.trim() || sending}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 shrink-0 items-center gap-1.5 self-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Send className="h-4 w-4" />
+                  전송
                 </button>
               </div>
             </footer>
@@ -1390,31 +1569,68 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                     <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6">{expressionFeedback.source}</p>
                   </div>
 
-                  <div className="rounded-lg border border-border bg-background p-3">
-                    <p className="text-[10px] font-semibold uppercase text-muted-foreground">Feedback</p>
-                    {expressionFeedback.loading ? (
-                      <p className="mt-2 text-sm text-muted-foreground">표현을 확인하는 중...</p>
-                    ) : (
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{expressionFeedback.content}</p>
-                    )}
-                  </div>
-
-                    {!expressionFeedback.loading && (
-                      <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
-                        <p className="text-[10px] font-semibold uppercase text-primary">Practice sentence</p>
-                        <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6">
-                          {getPracticeSentence(expressionFeedback)}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={usePracticeSentence}
-                          className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          채팅창에 넣기
-                        </button>
+                  {expressionFeedback.loading ? (
+                    <div className="rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+                      표현을 확인하는 중...
+                    </div>
+                  ) : getExpressionSuggestions(expressionFeedback).length > 0 ? (
+                    <>
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase text-primary">추천 표현</p>
+                        {getExpressionSuggestions(expressionFeedback).map((suggestion, index) => (
+                          <div key={`${index}-${suggestion}`} className="rounded-lg border border-border bg-background p-3">
+                            <p className="text-sm font-medium leading-6">{suggestion}</p>
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void speakMessage(suggestion, suggestion)}
+                                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                              >
+                                {speakingMessageId === suggestion ? (
+                                  <>
+                                    <Square className="h-3.5 w-3.5" />
+                                    중지
+                                  </>
+                                ) : (
+                                  <>
+                                    <Volume2 className="h-3.5 w-3.5" />
+                                    듣기
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInput(suggestion);
+                                  textAreaRef.current?.focus();
+                                }}
+                                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                바로 입력
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    )}
+
+                      {getExpressionReason(expressionFeedback) && (
+                        <details className="rounded-lg border border-border bg-muted/20 p-3">
+                          <summary className="cursor-pointer text-[10px] font-semibold uppercase text-muted-foreground">
+                            왜 더 자연스러운가
+                          </summary>
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                            {getExpressionReason(expressionFeedback)}
+                          </p>
+                        </details>
+                      )}
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-background p-3">
+                      <p className="text-[10px] font-semibold uppercase text-muted-foreground">Feedback</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{expressionFeedback.content}</p>
+                    </div>
+                  )}
                   </>
                 )}
               </div>
@@ -1429,7 +1645,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
           onClick={() => setSettingsOpen(false)}
         >
           <div
-            className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl"
+            className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <header className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -1450,13 +1666,16 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">프리셋</p>
+              <p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">프리셋 (대화 스타일 채우기)</p>
               <div className="mb-4 flex flex-wrap gap-2">
                 {presets.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
-                    onClick={() => setInstructionsDraft(preset.systemPrompt)}
+                    onClick={() => {
+                      setInstrDraft((draft) => ({ ...draft, style: preset.systemPrompt }));
+                      setSettingsTab("style");
+                    }}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
                   >
                     <Bot className="h-3.5 w-3.5" />
@@ -1465,23 +1684,63 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setInstructionsDraft("")}
+                  onClick={() => setInstrDraft(EMPTY_INSTRUCTIONS)}
                   className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
                 >
-                  비우기
+                  전체 비우기
                 </button>
               </div>
 
-              <p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">사전 지침 (System instructions)</p>
-              <textarea
-                rows={12}
-                value={instructionsDraft}
-                onChange={(event) => setInstructionsDraft(event.target.value)}
-                placeholder="예: 너는 깐깐한 영어 면접관이야. 짧게 한 가지씩 질문하고, 답변 후 더 자연스러운 표현을 한 줄로 제안해줘."
-                className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground"
-              />
+              <div className="mb-4 flex gap-1 overflow-x-auto border-b border-border">
+                {INSTRUCTION_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setSettingsTab(tab.key)}
+                    className={`relative -mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                      settingsTab === tab.key
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                    {instrDraft[tab.key].trim() && (
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${settingsTab === tab.key ? "bg-primary" : "bg-primary/50"}`}
+                        aria-label="작성됨"
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {INSTRUCTION_TABS.filter((tab) => tab.key === settingsTab).map((tab) => (
+                <div key={tab.key} className="relative">
+                  {tab.key === "news" && (
+                    <button
+                      type="button"
+                      onClick={loadNews}
+                      disabled={newsLoading}
+                      title="구글 뉴스에서 오늘 헤드라인을 가져옵니다"
+                      className="absolute right-2 top-2 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs font-semibold text-muted-foreground shadow-sm transition-colors hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Newspaper className="h-3.5 w-3.5" />
+                      {newsLoading ? "불러오는 중..." : "오늘 뉴스 가져오기"}
+                    </button>
+                  )}
+                  <textarea
+                    rows={11}
+                    value={instrDraft[tab.key]}
+                    onChange={(event) => setInstrDraft((draft) => ({ ...draft, [tab.key]: event.target.value }))}
+                    placeholder={tab.placeholder}
+                    className={`w-full resize-y rounded-md border border-border bg-background px-3 pb-2 text-sm leading-6 outline-none placeholder:text-muted-foreground ${
+                      tab.key === "news" ? "pt-11" : "pt-2"
+                    }`}
+                  />
+                </div>
+              ))}
               <p className="mt-2 text-xs text-muted-foreground">
-                비워두면 이 에이전트의 기본 지침을 사용합니다.
+                다섯 항목은 하나의 지침으로 합쳐 적용됩니다. 모두 비우면 이 에이전트의 기본 지침을 사용합니다.
               </p>
             </div>
 

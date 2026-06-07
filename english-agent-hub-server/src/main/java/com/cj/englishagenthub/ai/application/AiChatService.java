@@ -5,6 +5,7 @@ import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
+import com.cj.englishagenthub.ai.presentation.dto.NewsResponse;
 import com.cj.englishagenthub.ai.presentation.dto.SpeechRequest;
 import com.cj.englishagenthub.ai.presentation.dto.TranscribeResponse;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
@@ -32,8 +33,12 @@ import reactor.core.publisher.Flux;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -271,6 +276,64 @@ public class AiChatService {
             log.warn("TTS request failed. model={}, error={}", ttsModel, e.getMessage());
             throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
         }
+    }
+
+    private static final Pattern RSS_ITEM_PATTERN = Pattern.compile("<item>(.*?)</item>", Pattern.DOTALL);
+    private static final Pattern RSS_TITLE_PATTERN =
+            Pattern.compile("<title>(?:<!\\[CDATA\\[)?(.*?)(?:\\]\\]>)?</title>", Pattern.DOTALL);
+
+    public NewsResponse fetchNews(String lang) {
+        String url = "en".equalsIgnoreCase(lang)
+                ? "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+                : "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko";
+
+        try {
+            String xml = RestClient.create()
+                    .get()
+                    .uri(url)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; EnglishAgentHub/1.0)")
+                    .retrieve()
+                    .body(String.class);
+
+            List<String> titles = parseRssTitles(xml, 10);
+            if (titles.isEmpty()) {
+                throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+            }
+            return new NewsResponse(titles);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("News fetch failed. url={}, error={}", url, e.getMessage());
+            throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+        }
+    }
+
+    private List<String> parseRssTitles(String xml, int limit) {
+        List<String> titles = new ArrayList<>();
+        if (!StringUtils.hasText(xml)) {
+            return titles;
+        }
+
+        Matcher itemMatcher = RSS_ITEM_PATTERN.matcher(xml);
+        while (itemMatcher.find() && titles.size() < limit) {
+            Matcher titleMatcher = RSS_TITLE_PATTERN.matcher(itemMatcher.group(1));
+            if (titleMatcher.find()) {
+                String title = decodeHtmlEntities(titleMatcher.group(1).trim());
+                if (StringUtils.hasText(title)) {
+                    titles.add(title);
+                }
+            }
+        }
+        return titles;
+    }
+
+    private String decodeHtmlEntities(String value) {
+        return value
+                .replace("&#39;", "'")
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&");
     }
 
     private OpenAiChatOptions.Builder translationOptions() {

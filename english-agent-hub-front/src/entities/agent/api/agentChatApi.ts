@@ -156,6 +156,11 @@ export const agentChatApi = {
       )
       .then((r) => r.data),
 
+  fetchNews: (lang = "ko") =>
+    api
+      .get<{ items: string[] }>("/api/ai/news", { params: { lang }, timeout: 15_000 })
+      .then((r) => r.data),
+
   transcribeAudio: async (audio: Blob, language = "en") => {
     const ext = audio.type.includes("ogg")
       ? "ogg"
