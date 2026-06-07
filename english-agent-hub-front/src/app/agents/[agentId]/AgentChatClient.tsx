@@ -22,6 +22,11 @@ type RealtimePayload = {
   text?: string;
   delta?: string;
   response?: unknown;
+  error?: {
+    message?: string;
+    code?: string;
+    type?: string;
+  };
 };
 
 function extractClientSecret(raw: Record<string, unknown>): string | null {
@@ -194,10 +199,6 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       dataChannel.send(
         JSON.stringify({
           type: "response.create",
-          response: {
-            modalities: ["audio", "text"],
-            instructions: agent.description,
-          },
         })
       );
       return;
@@ -282,6 +283,13 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
           const payload = JSON.parse(event.data) as RealtimePayload;
           const key = getRealtimeEventKey(payload);
 
+          if (payload.type === "error") {
+            const errorMessage = payload.error?.message ?? "Realtime 응답 생성 중 오류가 발생했습니다.";
+            console.error("Realtime error", payload);
+            toast.error(errorMessage);
+            return;
+          }
+
           if (payload.type === "conversation.item.input_audio_transcription.completed") {
             appendRealtimeMessage("learner", payload.transcript ?? "");
           }
@@ -323,10 +331,6 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
         dataChannel.send(
           JSON.stringify({
             type: "response.create",
-            response: {
-              modalities: ["audio", "text"],
-              instructions: "Greet the learner briefly and ask one short question to start the practice.",
-            },
           })
         );
       });
