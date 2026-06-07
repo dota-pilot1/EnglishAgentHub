@@ -44,25 +44,25 @@ function getRealtimeEventKey(payload: RealtimePayload) {
 }
 
 function extractResponseText(response: unknown): string | null {
-  if (!response || typeof response !== "object" || !("output" in response) || !Array.isArray(response.output)) {
-    return null;
-  }
+  const textParts: string[] = [];
+  const visited = new Set<unknown>();
 
-  const textParts = response.output.flatMap((item) => {
-    if (!item || typeof item !== "object" || !("content" in item) || !Array.isArray(item.content)) {
-      return [];
+  const collectText = (value: unknown) => {
+    if (!value || typeof value !== "object" || visited.has(value)) return;
+    visited.add(value);
+
+    if ("transcript" in value && typeof value.transcript === "string") {
+      textParts.push(value.transcript);
+    }
+    if ("text" in value && typeof value.text === "string") {
+      textParts.push(value.text);
     }
 
-    return item.content.flatMap((content) => {
-      if (!content || typeof content !== "object") return [];
-      const values: string[] = [];
-      if ("transcript" in content && typeof content.transcript === "string") values.push(content.transcript);
-      if ("text" in content && typeof content.text === "string") values.push(content.text);
-      return values;
-    });
-  });
+    Object.values(value).forEach(collectText);
+  };
 
-  const text = textParts.join("\n").trim();
+  collectText(response);
+  const text = Array.from(new Set(textParts.map((part) => part.trim()).filter(Boolean))).join("\n").trim();
   return text || null;
 }
 
@@ -287,6 +287,8 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
           }
 
           if (
+            payload.type === "response.text.delta" ||
+            payload.type === "response.output_text.delta" ||
             payload.type === "response.audio_transcript.delta" ||
             payload.type === "response.output_audio_transcript.delta"
           ) {
@@ -294,6 +296,8 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
           }
 
           if (
+            payload.type === "response.text.done" ||
+            payload.type === "response.output_text.done" ||
             payload.type === "response.audio_transcript.done" ||
             payload.type === "response.output_audio_transcript.done"
           ) {
