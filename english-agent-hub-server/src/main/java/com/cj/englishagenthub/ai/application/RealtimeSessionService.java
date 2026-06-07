@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
-import java.util.List;
 import java.util.Map;
 
 @Service
@@ -33,7 +32,6 @@ public class RealtimeSessionService {
                 "session", Map.of(
                         "type", "realtime",
                         "model", realtimeProperties.model(),
-                        "modalities", List.of("text", "audio"),
                         "instructions", agentType.systemPrompt(),
                         "audio", Map.of(
                                 "input", Map.of(
