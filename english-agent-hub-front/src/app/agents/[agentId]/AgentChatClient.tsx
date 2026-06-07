@@ -14,6 +14,9 @@ type ChatMessage = {
   text: string;
   sourceText?: string;
   translatedText?: string;
+  sourceLabel?: string;
+  translatedLabel?: string;
+  translating?: boolean;
   streaming?: boolean;
 };
 
@@ -154,11 +157,32 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
     });
   };
 
-  const appendLearnerMessage = (message: { text: string; sourceText?: string; translatedText?: string }) => {
+  const appendLearnerMessage = (message: {
+    text: string;
+    sourceText?: string;
+    translatedText?: string;
+    sourceLabel?: string;
+    translatedLabel?: string;
+  }) => {
     appendRealtimeMessage("learner", message.text, {
       sourceText: message.sourceText,
       translatedText: message.translatedText,
+      sourceLabel: message.sourceLabel,
+      translatedLabel: message.translatedLabel,
     });
+  };
+
+  const updateMessage = (messageId: string, updates: Partial<ChatMessage>) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              ...updates,
+            }
+          : message
+      )
+    );
   };
 
   const appendRealtimeDelta = (key: string, delta: string) => {
@@ -191,6 +215,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
         message.id === messageId ? { ...message, text, streaming: false } : message
       );
     });
+    void translateAgentMessage(messageId, text);
   };
 
   const stopRealtimeSession = () => {
@@ -215,7 +240,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       window.setTimeout(() => {
         void startRealtimeSession(enabled, true);
       }, 0);
-      toast.info("자동 한영 설정을 적용하려고 음성 세션을 다시 시작합니다.");
+      toast.info("자동 번역 설정을 적용하려고 음성 세션을 다시 시작합니다.");
     }
   };
 
@@ -228,8 +253,20 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
   const prepareLearnerInput = async (message: string) => {
     const original = message.trim();
-    if (!autoKoEn || !hasKorean(original)) {
+    if (!autoKoEn) {
       return { displayText: original, modelText: original };
+    }
+
+    if (!hasKorean(original)) {
+      const korean = (await agentChatApi.translateToKorean(original)).text.trim();
+      return {
+        displayText: original,
+        modelText: original,
+        sourceText: original,
+        translatedText: korean,
+        sourceLabel: "English",
+        translatedLabel: "한국어",
+      };
     }
 
     const english = (await agentChatApi.translateToEnglish(original)).text.trim();
@@ -238,7 +275,52 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       modelText: english,
       sourceText: original,
       translatedText: english,
+      sourceLabel: "한국어",
+      translatedLabel: "English",
     };
+  };
+
+  const translateLearnerMessage = async (messageId: string, message: string) => {
+    try {
+      const learnerInput = await prepareLearnerInput(message);
+      updateMessage(messageId, {
+        text: learnerInput.displayText,
+        sourceText: learnerInput.sourceText,
+        translatedText: learnerInput.translatedText,
+        sourceLabel: learnerInput.sourceLabel,
+        translatedLabel: learnerInput.translatedLabel,
+        translating: false,
+      });
+      return learnerInput.modelText;
+    } catch (error) {
+      toastError(error, "영어 번역을 만들지 못했습니다.");
+      updateMessage(messageId, { translating: false });
+      return message;
+    }
+  };
+
+  const translateAgentMessage = async (messageId: string, message: string) => {
+    const original = message.trim();
+    if (!autoKoEn || !original) return;
+
+    updateMessage(messageId, {
+      sourceText: original,
+      sourceLabel: "English",
+      translatedLabel: "한국어",
+      translating: true,
+    });
+
+    try {
+      const korean = (await agentChatApi.translateToKorean(original)).text.trim();
+      updateMessage(messageId, {
+        sourceText: original,
+        translatedText: korean,
+        translating: false,
+      });
+    } catch (error) {
+      toastError(error, "응답 번역을 만들지 못했습니다.");
+      updateMessage(messageId, { translating: false });
+    }
   };
 
   const sendMessage = async () => {
@@ -247,42 +329,40 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
     setInput("");
     setSending(true);
+    const needsTranslation = autoKoEn;
+    const learnerMessageId = crypto.randomUUID();
+    setMessages((current) => [
+      ...current,
+      {
+        id: learnerMessageId,
+        role: "learner",
+        text: needsTranslation ? "" : message,
+        sourceText: needsTranslation ? message : undefined,
+        sourceLabel: needsTranslation ? (hasKorean(message) ? "한국어" : "English") : undefined,
+        translatedLabel: needsTranslation ? (hasKorean(message) ? "English" : "한국어") : undefined,
+        translating: needsTranslation,
+      },
+    ]);
 
-    let learnerInput: Awaited<ReturnType<typeof prepareLearnerInput>>;
-    try {
-      learnerInput = await prepareLearnerInput(message);
-    } catch (error) {
-      toastError(error, "영어 번역을 만들지 못했습니다.");
-      learnerInput = { displayText: message, modelText: message };
-    }
+    const modelText = needsTranslation ? await translateLearnerMessage(learnerMessageId, message) : message;
 
     const dataChannel = dataChannelRef.current;
     if (voiceStatus === "connected" && dataChannel?.readyState === "open") {
-      appendLearnerMessage({
-        text: learnerInput.displayText,
-        sourceText: learnerInput.sourceText,
-        translatedText: learnerInput.translatedText,
-      });
-      requestRealtimeResponse(learnerInput.modelText);
+      requestRealtimeResponse(modelText);
       setSending(false);
       return;
     }
 
     const agentResponseId = crypto.randomUUID();
+    let responseText = "";
     setMessages((current) => [
       ...current,
-      {
-        id: crypto.randomUUID(),
-        role: "learner",
-        text: learnerInput.displayText,
-        sourceText: learnerInput.sourceText,
-        translatedText: learnerInput.translatedText,
-      },
       { id: agentResponseId, role: "agent", text: "", streaming: true },
     ]);
 
     try {
-      await agentChatApi.streamMessage({ agentId: agent.id, message: learnerInput.modelText }, (delta) => {
+      await agentChatApi.streamMessage({ agentId: agent.id, message: modelText }, (delta) => {
+        responseText += delta;
         setMessages((current) =>
           current.map((item) =>
             item.id === agentResponseId ? { ...item, text: `${item.text}${delta}` } : item
@@ -294,6 +374,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
           item.id === agentResponseId ? { ...item, streaming: false, text: item.text.trim() } : item
         )
       );
+      void translateAgentMessage(agentResponseId, responseText);
     } catch (e) {
       toastError(e, "AI 응답을 가져오지 못했습니다.");
       setMessages((current) =>
@@ -343,18 +424,23 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       return;
     }
 
-    try {
-      const learnerInput = await prepareLearnerInput(original);
-      appendLearnerMessage({
-        text: learnerInput.displayText,
-        sourceText: learnerInput.sourceText,
-        translatedText: learnerInput.translatedText,
-      });
-      requestRealtimeResponse(learnerInput.modelText);
-    } catch (error) {
-      toastError(error, "영어 번역을 만들지 못했습니다.");
-      appendLearnerMessage({ text: original });
-    }
+    const needsTranslation = autoKoEn;
+    const learnerMessageId = crypto.randomUUID();
+    setMessages((current) => [
+      ...current,
+      {
+        id: learnerMessageId,
+        role: "learner",
+        text: needsTranslation ? "" : original,
+        sourceText: needsTranslation ? original : undefined,
+        sourceLabel: needsTranslation ? (hasKorean(original) ? "한국어" : "English") : undefined,
+        translatedLabel: needsTranslation ? (hasKorean(original) ? "English" : "한국어") : undefined,
+        translating: needsTranslation,
+      },
+    ]);
+
+    const modelText = needsTranslation ? await translateLearnerMessage(learnerMessageId, original) : original;
+    requestRealtimeResponse(modelText);
   };
 
   const startRealtimeSession = async (autoKoEnOverride = autoKoEn, force = false) => {
@@ -435,7 +521,9 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
               const text = extractResponseText(payload.response);
               if (text) {
                 completedRealtimeItemsRef.current.add(key);
-                appendRealtimeMessage("agent", text);
+                const messageId = `realtime-${key}`;
+                appendRealtimeMessage("agent", text, { id: messageId });
+                void translateAgentMessage(messageId, text);
               }
             }
           }
@@ -571,13 +659,13 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                 <label className="flex items-center justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
                     <Languages className="h-4 w-4 text-primary" />
-                    자동 한영 전사
+                    자동 번역
                   </span>
                   <Switch
                     checked={autoKoEn}
                     onCheckedChange={toggleAutoKoEn}
                     disabled={voiceStatus === "connecting"}
-                    aria-label="자동 한영 전사"
+                    aria-label="자동 번역"
                   />
                 </label>
                 <label className="flex items-center justify-between gap-3">
@@ -619,7 +707,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
               </div>
               <div className="flex items-center gap-2">
                 <span
-                  title={autoKoEn ? "한국어 음성을 영어 문장으로 전사" : "음성을 원문에 가깝게 전사"}
+                  title={autoKoEn ? "한국어와 영어 입력에 번역을 함께 표시" : "입력 원문만 표시"}
                   className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold ${
                     autoKoEn
                       ? "border-primary/30 bg-primary/10 text-primary"
@@ -627,7 +715,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                   }`}
                 >
                   <Languages className="h-3.5 w-3.5" />
-                  한영
+                  자동 번역
                 </span>
                 <span
                   title={micMuted ? "마이크 입력을 Realtime 세션으로 보내지 않음" : "마이크 입력 전송 중"}
@@ -672,19 +760,29 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                           : "border border-border bg-muted/35 text-foreground"
                       } whitespace-pre-wrap`}
                     >
-                      {isLearner && message.sourceText && message.translatedText ? (
+                      {message.sourceText ? (
                         <div className="space-y-2 whitespace-normal">
                           <div>
-                            <div className="mb-1 text-[10px] font-semibold uppercase text-primary-foreground/60">
-                              한국어
+                            <div
+                              className={`mb-1 text-[10px] font-semibold uppercase ${
+                                isLearner ? "text-primary-foreground/60" : "text-muted-foreground"
+                              }`}
+                            >
+                              {message.sourceLabel ?? "원문"}
                             </div>
                             <div className="whitespace-pre-wrap">{message.sourceText}</div>
                           </div>
-                          <div className="border-t border-primary-foreground/20 pt-2">
-                            <div className="mb-1 text-[10px] font-semibold uppercase text-primary-foreground/60">
-                              English
+                          <div className={`border-t pt-2 ${isLearner ? "border-primary-foreground/20" : "border-border"}`}>
+                            <div
+                              className={`mb-1 text-[10px] font-semibold uppercase ${
+                                isLearner ? "text-primary-foreground/60" : "text-muted-foreground"
+                              }`}
+                            >
+                              {message.translatedLabel ?? "번역"}
                             </div>
-                            <div className="whitespace-pre-wrap font-medium">{message.translatedText}</div>
+                            <div className="whitespace-pre-wrap font-medium">
+                              {message.translating ? "번역 중..." : message.translatedText}
+                            </div>
                           </div>
                         </div>
                       ) : (

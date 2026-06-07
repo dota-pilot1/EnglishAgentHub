@@ -25,6 +25,10 @@ export type TranslateToEnglishResponse = {
   text: string;
 };
 
+export type TranslateToKoreanResponse = {
+  text: string;
+};
+
 async function refreshTokens(): Promise<string> {
   const refreshToken = tokenStorage.getRefresh();
   if (!refreshToken) throw new Error("no refresh token");
@@ -126,5 +130,10 @@ export const agentChatApi = {
   translateToEnglish: (text: string) =>
     api
       .post<TranslateToEnglishResponse>("/api/ai/translate-to-english", { text })
+      .then((r) => r.data),
+
+  translateToKorean: (text: string) =>
+    api
+      .post<TranslateToKoreanResponse>("/api/ai/translate-to-korean", { text })
       .then((r) => r.data),
 };

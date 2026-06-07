@@ -5,6 +5,8 @@ import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishResponse;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanRequest;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,6 +37,12 @@ public class AiChatController {
     @Operation(summary = "영어 학습용 한영 변환")
     public TranslateToEnglishResponse translateToEnglish(@Valid @RequestBody TranslateToEnglishRequest request) {
         return aiChatService.translateToEnglish(request);
+    }
+
+    @PostMapping("/translate-to-korean")
+    @Operation(summary = "영어 학습용 영한 변환")
+    public TranslateToKoreanResponse translateToKorean(@Valid @RequestBody TranslateToKoreanRequest request) {
+        return aiChatService.translateToKorean(request);
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

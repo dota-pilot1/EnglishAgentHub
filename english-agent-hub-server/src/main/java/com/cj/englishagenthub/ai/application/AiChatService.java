@@ -5,6 +5,8 @@ import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishResponse;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanRequest;
+import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanResponse;
 import com.cj.englishagenthub.common.exception.BusinessException;
 import com.cj.englishagenthub.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -87,6 +89,28 @@ public class AiChatService {
         }
 
         return new TranslateToEnglishResponse(content.trim());
+    }
+
+    public TranslateToKoreanResponse translateToKorean(TranslateToKoreanRequest request) {
+        requireOpenAiApiKey();
+
+        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
+        if (builder == null) {
+            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
+        }
+
+        String content = builder.build()
+                .prompt()
+                .system("Translate the user's English message into natural Korean for an English learning chat. Preserve the meaning and tone. Return only the Korean translation, with no explanation.")
+                .user(request.text())
+                .call()
+                .content();
+
+        if (!StringUtils.hasText(content)) {
+            throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+        }
+
+        return new TranslateToKoreanResponse(content.trim());
     }
 
     private void requireOpenAiApiKey() {
