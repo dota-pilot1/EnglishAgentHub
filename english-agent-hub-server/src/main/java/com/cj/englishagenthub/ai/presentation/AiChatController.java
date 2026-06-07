@@ -3,6 +3,8 @@ package com.cj.englishagenthub.ai.presentation;
 import com.cj.englishagenthub.ai.application.AiChatService;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
+import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisRequest;
+import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
 import com.cj.englishagenthub.ai.presentation.dto.NewsResponse;
@@ -55,6 +57,12 @@ public class AiChatController {
     @Operation(summary = "자연스러운 영어 표현 피드백")
     public ExpressionFeedbackResponse expressionFeedback(@Valid @RequestBody ExpressionFeedbackRequest request) {
         return aiChatService.expressionFeedback(request);
+    }
+
+    @PostMapping("/chunk-analysis")
+    @Operation(summary = "영어 문장 청크(의미 단위) 분석")
+    public ChunkAnalysisResponse chunkAnalysis(@Valid @RequestBody ChunkAnalysisRequest request) {
+        return aiChatService.chunkAnalysis(request);
     }
 
     @PostMapping(value = "/speech", produces = "audio/mpeg")

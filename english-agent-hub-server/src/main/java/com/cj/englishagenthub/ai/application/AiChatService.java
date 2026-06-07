@@ -3,6 +3,8 @@ package com.cj.englishagenthub.ai.application;
 import com.cj.englishagenthub.ai.domain.LearningAgentType;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
+import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisRequest;
+import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
 import com.cj.englishagenthub.ai.presentation.dto.NewsResponse;
@@ -14,6 +16,8 @@ import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanRequest;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanResponse;
 import com.cj.englishagenthub.common.exception.BusinessException;
 import com.cj.englishagenthub.common.exception.ErrorCode;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
@@ -46,6 +50,8 @@ import java.util.regex.Pattern;
 public class AiChatService {
 
     private final ObjectProvider<ChatClient.Builder> chatClientBuilderProvider;
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${spring.ai.openai.api-key:}")
     private String openAiApiKey;
@@ -193,6 +199,56 @@ public class AiChatService {
         return new ExpressionFeedbackResponse(content.trim());
     }
 
+    public ChunkAnalysisResponse chunkAnalysis(ChunkAnalysisRequest request) {
+        requireOpenAiApiKey();
+
+        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
+        if (builder == null) {
+            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
+        }
+
+        String content = builder.build()
+                .prompt()
+                .options(translationOptions(1500))
+                .system("""
+                        You break an English sentence into meaning chunks to help a Korean learner
+                        understand how the sentence is built, in the order an English speaker thinks.
+
+                        Return ONLY a JSON object, no markdown, no code fences, no extra text.
+                        Shape:
+                        {
+                          "chunks": [{"en": "...", "ko": "...", "note": "..."}],
+                          "natural": "...",
+                          "tip": "..."
+                        }
+
+                        Rules:
+                        - Split the sentence into short, natural chunks (a few words each):
+                          subject, verb phrase, prepositional phrase, conjunctions like "and/but/that", etc.
+                        - Keep the chunks in the ORIGINAL English order. Cover the whole sentence.
+                        - For each chunk: "en" is the English chunk exactly as it appears,
+                          "ko" is its natural Korean meaning, and "note" is an optional very short
+                          Korean hint about its role (e.g. "주어", "동사구", "앞 내용을 that으로 받음").
+                          Use an empty string for "note" when not helpful.
+                        - "natural" is one smooth, natural full Korean translation of the whole sentence.
+                        - "tip" is one short Korean sentence about the sentence's structure or a pattern
+                          worth noticing (e.g. how English chains clauses with "that"). Keep it practical.
+                        - Write all Korean naturally.
+                        """)
+                .user(request.text())
+                .call()
+                .content();
+
+        ChunkAnalysisResponse result = parseChunkAnalysis(content);
+
+        if (result == null || result.chunks() == null || result.chunks().isEmpty()) {
+            log.error("Chunk analysis returned no chunks. raw={}", content);
+            throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+        }
+
+        return result;
+    }
+
     public TranscribeResponse transcribe(MultipartFile file, String language) {
         requireOpenAiApiKey();
 
@@ -334,6 +390,30 @@ public class AiChatService {
                 .replace("&lt;", "<")
                 .replace("&gt;", ">")
                 .replace("&amp;", "&");
+    }
+
+    private ChunkAnalysisResponse parseChunkAnalysis(String content) {
+        if (!StringUtils.hasText(content)) {
+            return null;
+        }
+
+        String json = content.trim();
+        // ```json ... ``` 같은 코드펜스 제거
+        if (json.startsWith("```")) {
+            json = json.replaceAll("^```[a-zA-Z]*\\s*", "").replaceAll("\\s*```$", "").trim();
+        }
+        int start = json.indexOf('{');
+        int end = json.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            json = json.substring(start, end + 1);
+        }
+
+        try {
+            return objectMapper.readValue(json, ChunkAnalysisResponse.class);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to parse chunk analysis JSON. raw={}", content, e);
+            throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+        }
     }
 
     private OpenAiChatOptions.Builder translationOptions() {

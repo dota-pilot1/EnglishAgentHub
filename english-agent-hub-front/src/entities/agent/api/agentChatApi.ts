@@ -34,6 +34,18 @@ export type ExpressionFeedbackResponse = {
   content: string;
 };
 
+export type ChunkAnalysisChunk = {
+  en: string;
+  ko: string;
+  note?: string;
+};
+
+export type ChunkAnalysisResponse = {
+  chunks: ChunkAnalysisChunk[];
+  natural?: string;
+  tip?: string;
+};
+
 async function refreshTokens(): Promise<string> {
   const refreshToken = tokenStorage.getRefresh();
   if (!refreshToken) throw new Error("no refresh token");
@@ -145,6 +157,11 @@ export const agentChatApi = {
   getExpressionFeedback: (text: string) =>
     api
       .post<ExpressionFeedbackResponse>("/api/ai/expression-feedback", { text })
+      .then((r) => r.data),
+
+  analyzeChunks: (text: string) =>
+    api
+      .post<ChunkAnalysisResponse>("/api/ai/chunk-analysis", { text }, { timeout: 30_000 })
       .then((r) => r.data),
 
   synthesizeSpeech: (text: string) =>

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bot, Languages, Mic, MicOff, Newspaper, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
+import { ArrowLeft, Bot, Languages, ListTree, Loader2, Mic, MicOff, Newspaper, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
 import { agentChatApi } from "@/entities/agent/api/agentChatApi";
+import type { ChunkAnalysisResponse } from "@/entities/agent/api/agentChatApi";
 import type { LearningAgent } from "@/entities/agent/model/learningAgents";
 import { toast, toastError } from "@/shared/lib/toast";
 import { Switch } from "@/shared/ui/Switch";
@@ -39,6 +40,13 @@ type ExpressionFeedback = {
   source: string;
   content: string;
   loading: boolean;
+};
+
+type ChunkAnalysisState = {
+  loading: boolean;
+  source: string;
+  data?: ChunkAnalysisResponse;
+  error?: string;
 };
 
 type SpeechRecognitionResultEventLike = {
@@ -179,6 +187,105 @@ function TypingDots() {
   );
 }
 
+function ChunkAnalysisDialog({
+  open,
+  state,
+  onClose,
+}: {
+  open: boolean;
+  state?: ChunkAnalysisState;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open || !state) return null;
+
+  const data = state.data;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="chunk-analysis-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg border border-border bg-background shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3">
+          <div className="min-w-0">
+            <h2 id="chunk-analysis-title" className="flex items-center gap-1.5 text-sm font-semibold">
+              <ListTree className="h-4 w-4 text-primary" />
+              청크 분석
+            </h2>
+            <p className="mt-1 break-words text-xs text-muted-foreground">{state.source}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="닫기"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-5 py-4 text-sm">
+          {state.loading ? (
+            <div className="flex items-center gap-2 py-6 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              문장을 의미 단위로 분석하는 중...
+            </div>
+          ) : state.error ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {state.error}
+            </div>
+          ) : data ? (
+            <div className="space-y-4">
+              <div className="space-y-2.5">
+                {data.chunks.map((chunk, index) => (
+                  <div
+                    key={`${index}-${chunk.en}`}
+                    className="flex flex-col gap-1 border-l-2 border-primary/40 pl-3"
+                  >
+                    <span className="font-semibold text-foreground">{chunk.en}</span>
+                    <span className="text-muted-foreground">
+                      → {chunk.ko}
+                      {chunk.note?.trim() ? (
+                        <span className="ml-1 text-xs text-primary/80">({chunk.note.trim()})</span>
+                      ) : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {data.natural?.trim() && (
+                <div className="border-t border-border pt-3">
+                  <div className="text-[10px] font-semibold uppercase text-muted-foreground">자연스럽게</div>
+                  <p className="mt-1 font-medium leading-6 text-foreground">{data.natural.trim()}</p>
+                </div>
+              )}
+              {data.tip?.trim() && (
+                <div className="rounded-md bg-muted/60 px-3 py-2 leading-6 text-muted-foreground">
+                  💡 {data.tip.trim()}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type AgentInstructions = {
   style: string;
   character: string;
@@ -281,6 +388,8 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
   const [instrDraft, setInstrDraft] = useState<AgentInstructions>(EMPTY_INSTRUCTIONS);
   const [settingsTab, setSettingsTab] = useState<keyof AgentInstructions>("style");
   const [newsLoading, setNewsLoading] = useState(false);
+  const [chunkAnalysis, setChunkAnalysis] = useState<Record<string, ChunkAnalysisState>>({});
+  const [openChunkId, setOpenChunkId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -1057,6 +1166,8 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
     ttsCacheRef.current.clear();
     setMessages([]);
     setExpressionFeedback(null);
+    setChunkAnalysis({});
+    setOpenChunkId(null);
     toast.success("채팅 메시지를 지웠습니다.");
   };
 
@@ -1081,6 +1192,40 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
   const requestExpressionFeedback = (message: ChatMessage) => {
     void requestExpressionFeedbackForText(getExpressionSource(message));
+  };
+
+  const requestChunkAnalysis = async (messageId: string, text: string) => {
+    const source = text.trim();
+    if (!source) return;
+
+    setOpenChunkId(messageId);
+
+    const existing = chunkAnalysis[messageId];
+    // 이미 분석됐거나 분석 중이면 다이얼로그만 다시 연다
+    if (existing && (existing.loading || existing.data || existing.error)) return;
+
+    setChunkAnalysis((current) => ({
+      ...current,
+      [messageId]: { loading: true, source },
+    }));
+
+    try {
+      const data = await agentChatApi.analyzeChunks(source);
+      setChunkAnalysis((current) => ({
+        ...current,
+        [messageId]: { loading: false, source, data },
+      }));
+    } catch (error) {
+      toastError(error, "청크 분석을 가져오지 못했습니다.");
+      setChunkAnalysis((current) => ({
+        ...current,
+        [messageId]: {
+          loading: false,
+          source,
+          error: "청크 분석을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+        },
+      }));
+    }
   };
 
   const toggleExpressionVoiceInput = () => {
@@ -1412,23 +1557,45 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                       )}
                       {!isLearner && !message.streaming && (message.sourceText ?? message.text).trim() && (
                         <div className="mt-3 border-t border-border pt-2">
-                          <button
-                            type="button"
-                            onClick={() => void speakMessage(message.id, (message.sourceText ?? message.text).trim())}
-                            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                          >
-                            {speakingMessageId === message.id ? (
-                              <>
-                                <Square className="h-3.5 w-3.5" />
-                                중지
-                              </>
-                            ) : (
-                              <>
-                                <Volume2 className="h-3.5 w-3.5" />
-                                듣기
-                              </>
-                            )}
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void speakMessage(message.id, (message.sourceText ?? message.text).trim())}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            >
+                              {speakingMessageId === message.id ? (
+                                <>
+                                  <Square className="h-3.5 w-3.5" />
+                                  중지
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="h-3.5 w-3.5" />
+                                  듣기
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void requestChunkAnalysis(message.id, (message.sourceText ?? message.text).trim())
+                              }
+                              disabled={chunkAnalysis[message.id]?.loading}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+                            >
+                              {chunkAnalysis[message.id]?.loading ? (
+                                <>
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  분석 중
+                                </>
+                              ) : (
+                                <>
+                                  <ListTree className="h-3.5 w-3.5" />
+                                  청크 분석
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1764,6 +1931,11 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
           </div>
         </div>
       )}
+      <ChunkAnalysisDialog
+        open={openChunkId !== null}
+        state={openChunkId ? chunkAnalysis[openChunkId] : undefined}
+        onClose={() => setOpenChunkId(null)}
+      />
     </main>
   );
 }
