@@ -5,6 +5,11 @@
 .env.*
 !.env.example
 !**/.env.example
+배포 가이드/*.pem
+배포 가이드/*.key
+배포 가이드/*.csv
+배포 가이드/.env*
+!배포 가이드/.env.prod.example
 
 # Frontend dependencies and build output
 node_modules/

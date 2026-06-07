@@ -4,10 +4,16 @@ import type { LearningAgent } from "@/entities/agent/model/learningAgents";
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4301";
 
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type AiChatMessage = {
   agentId: string;
   message: string;
   instructions?: string;
+  history?: ChatTurn[];
 };
 
 export type AiChatMessageResponse = {
@@ -32,6 +38,18 @@ export type TranslateToKoreanResponse = {
 
 export type ExpressionFeedbackResponse = {
   content: string;
+};
+
+export type SuggestReplyRequest = {
+  agentId?: string;
+  instructions?: string;
+  lastAgentMessage?: string;
+  lastLearnerMessage?: string;
+  recentHistory?: string;
+};
+
+export type SuggestReplyResponse = {
+  text: string;
 };
 
 export type ChunkAnalysisChunk = {
@@ -159,6 +177,11 @@ export const agentChatApi = {
       .post<ExpressionFeedbackResponse>("/api/ai/expression-feedback", { text })
       .then((r) => r.data),
 
+  suggestReply: (body: SuggestReplyRequest) =>
+    api
+      .post<SuggestReplyResponse>("/api/ai/suggest-reply", body, { timeout: 30_000 })
+      .then((r) => r.data),
+
   analyzeChunks: (text: string) =>
     api
       .post<ChunkAnalysisResponse>("/api/ai/chunk-analysis", { text }, { timeout: 30_000 })
@@ -178,7 +201,7 @@ export const agentChatApi = {
       .get<{ items: string[] }>("/api/ai/news", { params: { lang }, timeout: 15_000 })
       .then((r) => r.data),
 
-  transcribeAudio: async (audio: Blob, language = "en") => {
+  transcribeAudio: async (audio: Blob, language?: string) => {
     const ext = audio.type.includes("ogg")
       ? "ogg"
       : audio.type.includes("mp4")
@@ -188,7 +211,8 @@ export const agentChatApi = {
           : "webm";
     const form = new FormData();
     form.append("file", audio, `audio.${ext}`);
-    form.append("language", language);
+    // 빈 값은 보내지 않음 → Whisper 자동 감지로 폴백
+    if (language && language.trim()) form.append("language", language.trim());
 
     const doFetch = (token: string | null) =>
       fetch(`${baseURL}/api/ai/transcribe`, {

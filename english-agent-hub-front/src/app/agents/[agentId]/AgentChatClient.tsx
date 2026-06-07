@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bot, Languages, ListTree, Loader2, Mic, MicOff, Newspaper, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
 import { agentChatApi } from "@/entities/agent/api/agentChatApi";
-import type { ChunkAnalysisResponse } from "@/entities/agent/api/agentChatApi";
+import type { ChatTurn, ChunkAnalysisResponse } from "@/entities/agent/api/agentChatApi";
 import type { LearningAgent } from "@/entities/agent/model/learningAgents";
 import { toast, toastError } from "@/shared/lib/toast";
 import { Switch } from "@/shared/ui/Switch";
@@ -288,6 +288,7 @@ function ChunkAnalysisDialog({
 
 type AgentInstructions = {
   style: string;
+  scenario: string;
   character: string;
   knowledge: string;
   news: string;
@@ -296,6 +297,7 @@ type AgentInstructions = {
 
 const EMPTY_INSTRUCTIONS: AgentInstructions = {
   style: "",
+  scenario: "",
   character: "",
   knowledge: "",
   news: "",
@@ -308,6 +310,19 @@ const INSTRUCTION_TABS: { key: keyof AgentInstructions; label: string; placehold
     label: "대화 스타일",
     placeholder:
       "예: 친구처럼 편한 반말 톤으로, 쉬운 단어만 써서 1~2문장으로 짧게 답해줘. 가끔 더 자연스러운 표현을 한 줄 알려줘.",
+  },
+  {
+    key: "scenario",
+    label: "참고 시나리오",
+    placeholder: `예 (카페 응대 시나리오):
+1) 인사하고 무엇을 주문하실지 묻기
+2) 사이즈(Tall/Grande/Venti) 묻기
+3) 핫/아이스, 시럽, 휘핑 같은 옵션 묻기
+4) 추가 메뉴 있는지 묻기
+5) 매장/포장 여부 묻기
+6) 결제 방식 묻고 영수증/포인트 마무리
+
+이 절차를 한 번에 한 단계씩 진행하고, 학습자가 답하기 전엔 다음 단계로 넘어가지 마.`,
   },
   {
     key: "character",
@@ -336,6 +351,7 @@ const INSTRUCTION_TABS: { key: keyof AgentInstructions; label: string; placehold
 function composeInstructions(instr: AgentInstructions): string {
   const parts: string[] = [];
   if (instr.style.trim()) parts.push(`[Conversation style]\n${instr.style.trim()}`);
+  if (instr.scenario.trim()) parts.push(`[Scenario / procedure to follow]\n${instr.scenario.trim()}`);
   if (instr.character.trim()) parts.push(`[Character]\n${instr.character.trim()}`);
   if (instr.knowledge.trim()) parts.push(`[Background knowledge]\n${instr.knowledge.trim()}`);
   if (instr.news.trim()) parts.push(`[Today's news to bring up naturally]\n${instr.news.trim()}`);
@@ -352,6 +368,7 @@ function parseStoredInstructions(stored: string | null): AgentInstructions {
         typeof parsed[key] === "string" ? (parsed[key] as string) : "";
       const result: AgentInstructions = {
         style: read("style"),
+        scenario: read("scenario"),
         character: read("character"),
         knowledge: read("knowledge"),
         news: read("news"),
@@ -382,8 +399,8 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [inputListening, setInputListening] = useState(false);
   const [inputTranscribing, setInputTranscribing] = useState(false);
+  const [suggestingReply, setSuggestingReply] = useState(false);
   const [instr, setInstr] = useState<AgentInstructions>(EMPTY_INSTRUCTIONS);
-  const [presets, setPresets] = useState<LearningAgent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [instrDraft, setInstrDraft] = useState<AgentInstructions>(EMPTY_INSTRUCTIONS);
   const [settingsTab, setSettingsTab] = useState<keyof AgentInstructions>("style");
@@ -426,15 +443,6 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       })
       .catch((error) => {
         toastError(error, "에이전트 정보를 가져오지 못했습니다.");
-      });
-
-    agentChatApi
-      .getAgents()
-      .then((list) => {
-        if (mounted) setPresets(list);
-      })
-      .catch(() => {
-        // presets are optional; ignore
       });
 
     setInstr(parseStoredInstructions(window.localStorage.getItem(`agent-chat:instructions:${agentId}`)));
@@ -733,7 +741,9 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
         setInputTranscribing(true);
         try {
-          const { text } = await agentChatApi.transcribeAudio(blob);
+          // autoKoEn ON이면 한국어/영어 둘 다 들어올 수 있으므로 언어 힌트 미지정(자동 감지).
+          // OFF이면 영어 강제.
+          const { text } = await agentChatApi.transcribeAudio(blob, autoKoEn ? undefined : "en");
           const trimmed = text?.trim();
           if (trimmed) setInput(trimmed);
           else toast.info("음성에서 인식된 내용이 없습니다.");
@@ -761,6 +771,49 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
       return;
     }
     void startInputRecording();
+  };
+
+  const requestSuggestedReply = async () => {
+    if (suggestingReply) return;
+
+    const pickText = (m: ChatMessage | undefined) =>
+      (m?.sourceText ?? m?.text ?? "").trim();
+
+    const lastAgent = [...messages].reverse().find((m) => m.role === "agent");
+    const lastLearner = [...messages].reverse().find((m) => m.role === "learner");
+
+    // 최근 6개 메시지를 oldest→newest 순으로 직렬화 (코치 모델이 흐름 전체를 보도록)
+    const recent = messages.slice(-6);
+    const recentHistory = recent
+      .map((m) => {
+        const role = m.role === "agent" ? "Character" : "Learner";
+        const text = pickText(m);
+        return text ? `${role}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    setSuggestingReply(true);
+    try {
+      const { text } = await agentChatApi.suggestReply({
+        agentId: agent?.id,
+        instructions: composeInstructions(instr) || undefined,
+        lastAgentMessage: pickText(lastAgent) || undefined,
+        lastLearnerMessage: pickText(lastLearner) || undefined,
+        recentHistory: recentHistory || undefined,
+      });
+      const trimmed = text?.trim();
+      if (trimmed) {
+        setInput(trimmed);
+        textAreaRef.current?.focus();
+      } else {
+        toast.info("추천 답변을 만들지 못했습니다.");
+      }
+    } catch (error) {
+      toastError(error, "추천 답변을 가져오지 못했습니다.");
+    } finally {
+      setSuggestingReply(false);
+    }
   };
 
   const withTranslationRetry = async <T,>(translate: () => Promise<T>) => {
@@ -886,13 +939,25 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
 
     const agentResponseId = crypto.randomUUID();
     let responseText = "";
+
+    // 호출 시점의 대화 히스토리(최대 20턴)를 직렬화 — 새 learner는 message로 따로 가므로 제외
+    const pickText = (m: ChatMessage) => (m.sourceText ?? m.text ?? "").trim();
+    const history = messages
+      .slice(-20)
+      .map<ChatTurn | null>((m) => {
+        const content = pickText(m);
+        if (!content) return null;
+        return { role: m.role === "agent" ? "assistant" : "user", content };
+      })
+      .filter((t): t is ChatTurn => t !== null);
+
     setMessages((current) => [
       ...current,
       { id: agentResponseId, role: "agent", text: "", streaming: true },
     ]);
 
     try {
-      await agentChatApi.streamMessage({ agentId: agent.id, message: modelText, instructions: composeInstructions(instr) || undefined }, (delta) => {
+      await agentChatApi.streamMessage({ agentId: agent.id, message: modelText, instructions: composeInstructions(instr) || undefined, history }, (delta) => {
         responseText += delta;
         setMessages((current) =>
           current.map((item) =>
@@ -1619,14 +1684,17 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
               <div className="mb-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setInput("Give me a helpful English hint for my next answer.");
-                    textAreaRef.current?.focus();
-                  }}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  title="대화 흐름에 맞춰 다음에 내가 할 영어 답변을 한 줄 추천받습니다 (입력창에 채워짐)"
+                  onClick={() => void requestSuggestedReply()}
+                  disabled={suggestingReply}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <WandSparkles className="h-3.5 w-3.5" />
-                  힌트
+                  {suggestingReply ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <WandSparkles className="h-3.5 w-3.5" />
+                  )}
+                  {suggestingReply ? "추천 중..." : "추천 답변"}
                 </button>
                 <button
                   type="button"
@@ -1819,7 +1887,7 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
               <div>
                 <h2 className="text-base font-bold tracking-tight">에이전트 지침 설정</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  프리셋을 고르거나 직접 지침을 작성하세요. 텍스트 채팅은 다음 메시지부터, 실시간 음성은 즉시 반영됩니다.
+                  이 세션에만 적용되는 개인 지침입니다. 텍스트 채팅은 다음 메시지부터, 실시간 음성은 즉시 반영됩니다.
                 </p>
               </div>
               <button
@@ -1833,31 +1901,6 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5">
-              <p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">프리셋 (대화 스타일 채우기)</p>
-              <div className="mb-4 flex flex-wrap gap-2">
-                {presets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      setInstrDraft((draft) => ({ ...draft, style: preset.systemPrompt }));
-                      setSettingsTab("style");
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
-                  >
-                    <Bot className="h-3.5 w-3.5" />
-                    {preset.title}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setInstrDraft(EMPTY_INSTRUCTIONS)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
-                >
-                  전체 비우기
-                </button>
-              </div>
-
               <div className="mb-4 flex gap-1 overflow-x-auto border-b border-border">
                 {INSTRUCTION_TABS.map((tab) => (
                   <button
@@ -1911,22 +1954,36 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
               </p>
             </div>
 
-            <footer className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
+            <footer className="flex items-center justify-between gap-2 border-t border-border px-5 py-4">
               <button
                 type="button"
-                onClick={() => setSettingsOpen(false)}
-                className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  const hasAny = Object.values(instrDraft).some((v) => v.trim());
+                  if (hasAny && !confirm("작성한 5개 항목을 모두 비울까요?")) return;
+                  setInstrDraft(EMPTY_INSTRUCTIONS);
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-dashed border-border px-3 text-xs font-semibold text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
               >
-                취소
+                <Trash2 className="h-3.5 w-3.5" />
+                전체 비우기
               </button>
-              <button
-                type="button"
-                onClick={saveSettings}
-                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-              >
-                <Settings2 className="h-4 w-4" />
-                저장
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(false)}
+                  className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={saveSettings}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  저장
+                </button>
+              </div>
             </footer>
           </div>
         </div>

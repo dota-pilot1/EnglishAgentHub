@@ -1,6 +1,5 @@
 package com.cj.englishagenthub.ai.application;
 
-import com.cj.englishagenthub.ai.domain.LearningAgentType;
 import com.cj.englishagenthub.ai.infrastructure.OpenAiClientResolver;
 import com.cj.englishagenthub.ai.presentation.dto.RealtimeClientSecretRequest;
 import com.cj.englishagenthub.ai.presentation.dto.RealtimeClientSecretResponse;
@@ -22,13 +21,11 @@ public class RealtimeSessionService {
 
     private final RealtimeProperties realtimeProperties;
     private final OpenAiClientResolver openAiClientResolver;
+    private final AgentResolver agentResolver;
 
     public RealtimeClientSecretResponse createClientSecret(RealtimeClientSecretRequest request) {
         requireOpenAiApiKey();
-        LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
-        String instructions = StringUtils.hasText(request.instructions())
-                ? request.instructions()
-                : agentType.systemPrompt();
+        String instructions = agentResolver.resolveSystemPrompt(request.agentId(), request.instructions());
         Map<String, Object> transcription = request.autoKoEn()
                 ? Map.of(
                         "model", "gpt-4o-mini-transcribe",

@@ -1,12 +1,14 @@
 package com.cj.englishagenthub.ai.application;
 
-import com.cj.englishagenthub.ai.domain.LearningAgentType;
 import com.cj.englishagenthub.ai.infrastructure.OpenAiClientResolver;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
+import com.cj.englishagenthub.ai.presentation.dto.ChatTurn;
 import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisRequest;
 import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
+import com.cj.englishagenthub.ai.presentation.dto.SuggestReplyRequest;
+import com.cj.englishagenthub.ai.presentation.dto.SuggestReplyResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
 import com.cj.englishagenthub.ai.presentation.dto.NewsResponse;
 import com.cj.englishagenthub.ai.presentation.dto.SpeechRequest;
@@ -22,6 +24,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -50,6 +55,7 @@ import java.util.regex.Pattern;
 public class AiChatService {
 
     private final OpenAiClientResolver openAiClientResolver;
+    private final AgentResolver agentResolver;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -68,13 +74,13 @@ public class AiChatService {
     public AiChatMessageResponse chat(AiChatMessageRequest request) {
         requireOpenAiApiKey();
 
-        LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
+        String systemPrompt = agentResolver.resolveSystemPrompt(request.agentId(), request.instructions());
         ChatClient.Builder builder = requireChatClientBuilder();
 
         String content = builder.build()
                 .prompt()
-                .system(resolveInstructions(agentType, request.instructions()))
-                .user(request.message())
+                .system(systemPrompt)
+                .messages(buildConversation(request))
                 .call()
                 .content();
 
@@ -82,26 +88,43 @@ public class AiChatService {
             throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
         }
 
-        return new AiChatMessageResponse(agentType.id(), content, Instant.now());
+        return new AiChatMessageResponse(request.agentId(), content, Instant.now());
     }
 
     public Flux<String> stream(AiChatMessageRequest request) {
         requireOpenAiApiKey();
 
-        LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
+        String systemPrompt = agentResolver.resolveSystemPrompt(request.agentId(), request.instructions());
         ChatClient.Builder builder = requireChatClientBuilder();
 
         return builder.build()
                 .prompt()
-                .system(resolveInstructions(agentType, request.instructions()))
-                .user(request.message())
+                .system(systemPrompt)
+                .messages(buildConversation(request))
                 .stream()
                 .content()
                 .filter(StringUtils::hasText);
     }
 
-    private String resolveInstructions(LearningAgentType agentType, String override) {
-        return StringUtils.hasText(override) ? override : agentType.systemPrompt();
+    /**
+     * 대화 history(과거 턴들) + 현재 user 메시지를 ChatClient에 넘길 Message 리스트로 변환.
+     * history가 없으면 단일 user 메시지만 반환.
+     */
+    private List<Message> buildConversation(AiChatMessageRequest request) {
+        List<Message> messages = new ArrayList<>();
+        if (request.history() != null) {
+            for (ChatTurn t : request.history()) {
+                if (t == null || !StringUtils.hasText(t.content())) continue;
+                String role = t.role() == null ? "" : t.role().toLowerCase();
+                if ("assistant".equals(role) || "agent".equals(role)) {
+                    messages.add(new AssistantMessage(t.content()));
+                } else {
+                    messages.add(new UserMessage(t.content()));
+                }
+            }
+        }
+        messages.add(new UserMessage(request.message()));
+        return messages;
     }
 
     public TranslateToEnglishResponse translateToEnglish(TranslateToEnglishRequest request) {
@@ -181,6 +204,75 @@ public class AiChatService {
         return new ExpressionFeedbackResponse(content.trim());
     }
 
+    public SuggestReplyResponse suggestReply(SuggestReplyRequest request) {
+        requireOpenAiApiKey();
+
+        ChatClient.Builder builder = requireChatClientBuilder();
+
+        // 캐릭터 컨텍스트: agentId+instructions 오버라이드를 해석해 코치 프롬프트에 박는다.
+        String characterContext;
+        try {
+            characterContext = agentResolver.resolveSystemPrompt(request.agentId(), request.instructions());
+        } catch (BusinessException e) {
+            characterContext = "(no specific character)";
+        }
+
+        StringBuilder userBlock = new StringBuilder();
+        if (StringUtils.hasText(request.recentHistory())) {
+            userBlock.append("Recent conversation (oldest → newest):\n")
+                    .append(request.recentHistory().trim())
+                    .append("\n\n");
+        }
+        if (StringUtils.hasText(request.lastAgentMessage())) {
+            userBlock.append("Character's MOST RECENT message (answer this precisely):\n\"")
+                    .append(request.lastAgentMessage().trim()).append("\"\n\n");
+        }
+        if (StringUtils.hasText(request.lastLearnerMessage()) && !StringUtils.hasText(request.recentHistory())) {
+            userBlock.append("Learner's previous message (for context):\n\"")
+                    .append(request.lastLearnerMessage().trim()).append("\"\n\n");
+        }
+        if (userBlock.length() == 0) {
+            userBlock.append("(no prior turns — suggest a natural opening line.)");
+        }
+
+        String content = builder.build()
+                .prompt()
+                .system("""
+                        You are a private coach for a Korean English learner.
+                        The learner is in a roleplay/conversation with an AI character described below.
+                        Your job: suggest ONE short, natural English line the LEARNER can say next.
+
+                        Strict rules:
+                        - Reply with ONLY the suggested English line.
+                        - No quotes, no Korean, no labels, no explanation, no leading dash.
+                        - Keep it short and natural for spoken conversation (typically under 15 words).
+                        - Directly and concretely answer the character's MOST RECENT message.
+                          If they ask an A-or-B question, pick one and answer it directly.
+                          If they ask for information, give that information first.
+                          Add at most one short detail; do NOT change the topic.
+                        - Stay consistent with the learner's previous messages (do not contradict them).
+                        - If the learner has not spoken yet, suggest a natural opening line.
+
+                        Character context:
+                        """ + characterContext)
+                .user(userBlock.toString().trim())
+                .call()
+                .content();
+
+        if (!StringUtils.hasText(content)) {
+            throw new BusinessException(ErrorCode.AI_REQUEST_FAILED);
+        }
+
+        // 모델이 가끔 따옴표·접두사를 붙이는 경우 정리.
+        String cleaned = content.trim();
+        if (cleaned.startsWith("\"") && cleaned.endsWith("\"") && cleaned.length() > 1) {
+            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+        }
+        if (cleaned.startsWith("- ")) cleaned = cleaned.substring(2).trim();
+
+        return new SuggestReplyResponse(cleaned);
+    }
+
     public ChunkAnalysisResponse chunkAnalysis(ChunkAnalysisRequest request) {
         requireOpenAiApiKey();
 
@@ -249,7 +341,10 @@ public class AiChatService {
             MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
             form.add("file", resource);
             form.add("model", transcribeModel);
-            form.add("language", StringUtils.hasText(language) ? language : "en");
+            // language가 비어 있으면 보내지 않음 → Whisper 자동 감지(한국어/영어 혼용 시 오인식 방지)
+            if (StringUtils.hasText(language)) {
+                form.add("language", language.trim());
+            }
             form.add("response_format", "json");
 
             Map<String, Object> response = RestClient.create("https://api.openai.com")

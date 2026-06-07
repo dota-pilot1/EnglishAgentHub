@@ -6,6 +6,8 @@ import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisRequest;
 import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
+import com.cj.englishagenthub.ai.presentation.dto.SuggestReplyRequest;
+import com.cj.englishagenthub.ai.presentation.dto.SuggestReplyResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
 import com.cj.englishagenthub.ai.presentation.dto.NewsResponse;
 import com.cj.englishagenthub.ai.presentation.dto.SpeechRequest;
@@ -63,6 +65,12 @@ public class AiChatController {
     @Operation(summary = "영어 문장 청크(의미 단위) 분석")
     public ChunkAnalysisResponse chunkAnalysis(@Valid @RequestBody ChunkAnalysisRequest request) {
         return aiChatService.chunkAnalysis(request);
+    }
+
+    @PostMapping("/suggest-reply")
+    @Operation(summary = "학습자가 다음에 할 영어 답변 한 줄 추천 (대화 흐름에 끼지 않음)")
+    public SuggestReplyResponse suggestReply(@Valid @RequestBody SuggestReplyRequest request) {
+        return aiChatService.suggestReply(request);
     }
 
     @PostMapping(value = "/speech", produces = "audio/mpeg")
