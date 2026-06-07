@@ -46,7 +46,7 @@ Create or update the root `.env` file before starting the backend:
 ```bash
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_CHAT_MODEL=gpt-5-mini
-OPENAI_REALTIME_MODEL=gpt-realtime
+OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=marin
 ```
 
