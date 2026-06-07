@@ -29,6 +29,7 @@ public enum ErrorCode {
     OPENAI_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "AI_001", "OpenAI API 키가 설정되지 않았습니다."),
     AI_AGENT_NOT_FOUND(HttpStatus.NOT_FOUND, "AI_002", "AI 에이전트를 찾을 수 없습니다."),
     AI_REQUEST_FAILED(HttpStatus.BAD_GATEWAY, "AI_003", "AI 요청 처리 중 오류가 발생했습니다."),
+    OPENAI_KEY_INVALID(HttpStatus.BAD_REQUEST, "AI_004", "유효하지 않은 OpenAI API 키입니다."),
     SITE_SETTING_NOT_FOUND(HttpStatus.NOT_FOUND, "SITE_001", "사이트 설정을 찾을 수 없습니다."),
     MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "MENU_001", "메뉴를 찾을 수 없습니다."),
     MENU_CODE_DUPLICATE(HttpStatus.CONFLICT, "MENU_002", "이미 존재하는 메뉴 코드입니다."),

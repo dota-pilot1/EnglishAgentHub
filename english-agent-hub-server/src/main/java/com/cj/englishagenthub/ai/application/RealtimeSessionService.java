@@ -1,12 +1,12 @@
 package com.cj.englishagenthub.ai.application;
 
 import com.cj.englishagenthub.ai.domain.LearningAgentType;
+import com.cj.englishagenthub.ai.infrastructure.OpenAiClientResolver;
 import com.cj.englishagenthub.ai.presentation.dto.RealtimeClientSecretRequest;
 import com.cj.englishagenthub.ai.presentation.dto.RealtimeClientSecretResponse;
 import com.cj.englishagenthub.common.exception.BusinessException;
 import com.cj.englishagenthub.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
@@ -21,9 +21,7 @@ import java.util.HashMap;
 public class RealtimeSessionService {
 
     private final RealtimeProperties realtimeProperties;
-
-    @Value("${spring.ai.openai.api-key:}")
-    private String openAiApiKey;
+    private final OpenAiClientResolver openAiClientResolver;
 
     public RealtimeClientSecretResponse createClientSecret(RealtimeClientSecretRequest request) {
         requireOpenAiApiKey();
@@ -76,7 +74,7 @@ public class RealtimeSessionService {
                     .post()
                     .uri("/v1/realtime/client_secrets")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "Bearer " + openAiApiKey)
+                    .header("Authorization", "Bearer " + openAiClientResolver.getEffectiveApiKey())
                     .body(body)
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {
@@ -99,7 +97,7 @@ public class RealtimeSessionService {
     }
 
     private void requireOpenAiApiKey() {
-        if (!StringUtils.hasText(openAiApiKey)) {
+        if (!openAiClientResolver.hasUsableKey()) {
             throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
         }
     }

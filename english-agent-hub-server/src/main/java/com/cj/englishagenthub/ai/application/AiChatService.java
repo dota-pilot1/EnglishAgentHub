@@ -1,6 +1,7 @@
 package com.cj.englishagenthub.ai.application;
 
 import com.cj.englishagenthub.ai.domain.LearningAgentType;
+import com.cj.englishagenthub.ai.infrastructure.OpenAiClientResolver;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
 import com.cj.englishagenthub.ai.presentation.dto.ChunkAnalysisRequest;
@@ -22,7 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
@@ -49,12 +49,9 @@ import java.util.regex.Pattern;
 @Slf4j
 public class AiChatService {
 
-    private final ObjectProvider<ChatClient.Builder> chatClientBuilderProvider;
+    private final OpenAiClientResolver openAiClientResolver;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Value("${spring.ai.openai.api-key:}")
-    private String openAiApiKey;
 
     @Value("${openai.translation.model:gpt-5-nano}")
     private String translationModel;
@@ -72,10 +69,7 @@ public class AiChatService {
         requireOpenAiApiKey();
 
         LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        if (builder == null) {
-            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
-        }
+        ChatClient.Builder builder = requireChatClientBuilder();
 
         String content = builder.build()
                 .prompt()
@@ -95,10 +89,7 @@ public class AiChatService {
         requireOpenAiApiKey();
 
         LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        if (builder == null) {
-            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
-        }
+        ChatClient.Builder builder = requireChatClientBuilder();
 
         return builder.build()
                 .prompt()
@@ -116,10 +107,7 @@ public class AiChatService {
     public TranslateToEnglishResponse translateToEnglish(TranslateToEnglishRequest request) {
         requireOpenAiApiKey();
 
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        if (builder == null) {
-            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
-        }
+        ChatClient.Builder builder = requireChatClientBuilder();
 
         String content = translateWithRetry(() -> builder.build()
                 .prompt()
@@ -139,10 +127,7 @@ public class AiChatService {
     public TranslateToKoreanResponse translateToKorean(TranslateToKoreanRequest request) {
         requireOpenAiApiKey();
 
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        if (builder == null) {
-            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
-        }
+        ChatClient.Builder builder = requireChatClientBuilder();
 
         String content = translateWithRetry(() -> builder.build()
                 .prompt()
@@ -162,10 +147,7 @@ public class AiChatService {
     public ExpressionFeedbackResponse expressionFeedback(ExpressionFeedbackRequest request) {
         requireOpenAiApiKey();
 
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        if (builder == null) {
-            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
-        }
+        ChatClient.Builder builder = requireChatClientBuilder();
 
         String content = builder.build()
                 .prompt()
@@ -202,10 +184,7 @@ public class AiChatService {
     public ChunkAnalysisResponse chunkAnalysis(ChunkAnalysisRequest request) {
         requireOpenAiApiKey();
 
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-        if (builder == null) {
-            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
-        }
+        ChatClient.Builder builder = requireChatClientBuilder();
 
         String content = builder.build()
                 .prompt()
@@ -276,7 +255,7 @@ public class AiChatService {
             Map<String, Object> response = RestClient.create("https://api.openai.com")
                     .post()
                     .uri("/v1/audio/transcriptions")
-                    .header("Authorization", "Bearer " + openAiApiKey)
+                    .header("Authorization", "Bearer " + requireEffectiveApiKey())
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(form)
                     .retrieve()
@@ -316,7 +295,7 @@ public class AiChatService {
                     .post()
                     .uri("/v1/audio/speech")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "Bearer " + openAiApiKey)
+                    .header("Authorization", "Bearer " + requireEffectiveApiKey())
                     .body(body)
                     .retrieve()
                     .body(byte[].class);
@@ -429,9 +408,25 @@ public class AiChatService {
     }
 
     private void requireOpenAiApiKey() {
-        if (!StringUtils.hasText(openAiApiKey)) {
+        if (!openAiClientResolver.hasUsableKey()) {
             throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
         }
+    }
+
+    private ChatClient.Builder requireChatClientBuilder() {
+        ChatClient.Builder builder = openAiClientResolver.resolveChatClientBuilder();
+        if (builder == null) {
+            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
+        }
+        return builder;
+    }
+
+    private String requireEffectiveApiKey() {
+        String key = openAiClientResolver.getEffectiveApiKey();
+        if (!StringUtils.hasText(key)) {
+            throw new BusinessException(ErrorCode.OPENAI_NOT_CONFIGURED);
+        }
+        return key;
     }
 
     private String translateWithRetry(Supplier<String> translation) {

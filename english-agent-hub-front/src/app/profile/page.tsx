@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RequireAuth } from "@/widgets/guards/RequireAuth";
 import { useAuth } from "@/entities/user/model/authStore";
+import { userApiKeyApi } from "@/entities/user/api/userApiKeyApi";
+import type { OpenAiApiKeyResponse, OpenAiApiKeyValidationResponse } from "@/entities/user/api/userApiKeyApi";
+import { toast, toastError } from "@/shared/lib/toast";
 
 export default function ProfilePage() {
   return (
@@ -12,7 +15,7 @@ export default function ProfilePage() {
   );
 }
 
-type Tab = "info" | "memo" | "bookmarks";
+type Tab = "info" | "api";
 
 function ProfileContent() {
   const { user } = useAuth();
@@ -24,18 +27,16 @@ function ProfileContent() {
 
   return (
     <main className="w-full px-4 py-6">
-      <div className="flex gap-6 items-start">
-
-        {/* 왼쪽: 탭 본문 */}
-        <div className="flex-1 min-w-0">
-          <div className="flex border-b border-border mb-4">
-            {(["info", "memo", "bookmarks"] as Tab[]).map((t) => {
-              const label = { info: "기본 정보", memo: "메모장", bookmarks: "즐겨찾기" }[t];
+      <div className="flex items-start gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="mb-4 flex border-b border-border">
+            {(["info", "api"] as Tab[]).map((t) => {
+              const label = { info: "기본 정보", api: "API 키" }[t];
               return (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                  className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
                     tab === t
                       ? "border-primary text-foreground"
                       : "border-transparent text-muted-foreground hover:text-foreground"
@@ -73,41 +74,17 @@ function ProfileContent() {
             </div>
           )}
 
-          {tab === "memo" && (
-            <div className="rounded-lg border border-border">
-              <div className="px-4 py-3 border-b border-border bg-muted/50">
-                <h2 className="text-sm font-semibold">메모장</h2>
-              </div>
-              <div className="p-4">
-                <textarea
-                  className="w-full h-64 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  placeholder="메모를 입력하세요..."
-                />
-              </div>
-            </div>
-          )}
-
-          {tab === "bookmarks" && (
-            <div className="rounded-lg border border-border">
-              <div className="px-4 py-3 border-b border-border bg-muted/50">
-                <h2 className="text-sm font-semibold">즐겨찾기</h2>
-              </div>
-              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                즐겨찾기가 없습니다.
-              </div>
-            </div>
-          )}
+          {tab === "api" && <ApiKeyTab />}
         </div>
 
-        {/* 오른쪽: 사이드바 */}
         <aside className="w-56 shrink-0">
-          <div className="rounded-lg border border-border overflow-hidden">
-            <div className="flex flex-col items-center gap-2 bg-muted/50 px-4 py-6 border-b border-border">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground text-xl font-bold select-none">
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="flex flex-col items-center gap-2 border-b border-border bg-muted/50 px-4 py-6">
+              <div className="flex h-16 w-16 select-none items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
                 {initials}
               </div>
               <span className="text-sm font-semibold">{user.username}</span>
-              <span className="inline-flex items-center rounded-full bg-background border border-border px-2.5 py-0.5 text-xs font-medium">
+              <span className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 text-xs font-medium">
                 {user.role.name}
               </span>
             </div>
@@ -117,16 +94,189 @@ function ProfileContent() {
             </div>
           </div>
         </aside>
-
       </div>
     </main>
+  );
+}
+
+function ApiKeyTab() {
+  const [status, setStatus] = useState<OpenAiApiKeyResponse | null>(null);
+  const [draft, setDraft] = useState("");
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validation, setValidation] = useState<OpenAiApiKeyValidationResponse | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await userApiKeyApi.getOpenAi();
+        setStatus(data);
+      } catch (error) {
+        toastError(error, "API 키 정보를 불러오지 못했습니다.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleSave = async () => {
+    const key = draft.trim();
+    if (!key) {
+      toast.error("API 키를 입력해주세요.");
+      return;
+    }
+    setSaving(true);
+    setValidation(null);
+    try {
+      const data = await userApiKeyApi.saveOpenAi(key);
+      setStatus(data);
+      setDraft("");
+      setShow(false);
+      toast.success("API 키를 저장했습니다.");
+    } catch (error) {
+      toastError(error, "API 키 저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("저장된 OpenAI API 키를 삭제할까요?\n이후 AI 기능은 시스템 기본 키로 동작합니다.")) return;
+    setDeleting(true);
+    setValidation(null);
+    try {
+      await userApiKeyApi.deleteOpenAi();
+      setStatus({ configured: false, maskedKey: "" });
+      toast.success("API 키를 삭제했습니다.");
+    } catch (error) {
+      toastError(error, "API 키 삭제에 실패했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleValidate = async () => {
+    setValidating(true);
+    try {
+      const data = await userApiKeyApi.validateOpenAi();
+      setValidation(data);
+    } catch (error) {
+      toastError(error, "키 유효성 확인에 실패했습니다.");
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Section title="OpenAI API 키">
+        <div className="space-y-4 px-4 py-4">
+          <p className="text-sm text-muted-foreground">
+            개인 OpenAI API 키를 저장하면 채팅·번역·실시간 대화 모두 본인 키로 호출되어 비용이 본인 계정으로 청구됩니다.
+            비우면 시스템 기본 키로 동작합니다.
+          </p>
+
+          <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            {loading ? (
+              <span className="text-muted-foreground">상태 확인 중...</span>
+            ) : status?.configured ? (
+              <span>
+                <span className="font-semibold text-foreground">저장됨</span>
+                <span className="ml-2 font-mono text-muted-foreground">{status.maskedKey || "********"}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">저장된 키가 없습니다.</span>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">새 API 키</label>
+            <div className="flex gap-2">
+              <input
+                type={show ? "text" : "password"}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                spellCheck={false}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm outline-none transition-colors focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => setShow((v) => !v)}
+                className="h-9 shrink-0 rounded-md border border-input bg-background px-3 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                {show ? "숨기기" : "보기"}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              저장 시 서버에서 AES 암호화되어 보관되며, 원문은 다시 화면에 노출되지 않습니다.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !draft.trim()}
+              className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {saving ? "저장 중..." : "저장"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting || !status?.configured}
+              className="inline-flex h-9 items-center rounded-md border border-input bg-background px-4 text-sm font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              {deleting ? "삭제 중..." : "삭제"}
+            </button>
+            <button
+              type="button"
+              onClick={handleValidate}
+              disabled={validating || !status?.configured}
+              className="inline-flex h-9 items-center rounded-md border border-input bg-background px-4 text-sm font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              {validating ? "확인 중..." : "유효성 확인"}
+            </button>
+          </div>
+
+          {validation && (
+            <div
+              className={`rounded-md border px-3 py-2 text-xs ${
+                validation.valid
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-destructive/40 bg-destructive/5 text-destructive"
+              }`}
+            >
+              {validation.message}
+            </div>
+          )}
+
+          <div className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+            💡 키 발급:{" "}
+            <a
+              href="https://platform.openai.com/api-keys"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              platform.openai.com/api-keys
+            </a>
+          </div>
+        </div>
+      </Section>
+    </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border">
-      <div className="px-4 py-3 border-b border-border bg-muted/50">
+      <div className="border-b border-border bg-muted/50 px-4 py-3">
         <h2 className="text-sm font-semibold">{title}</h2>
       </div>
       {children}
@@ -136,8 +286,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center px-4 py-2.5 border-b border-border last:border-0">
-      <span className="w-20 text-xs text-muted-foreground shrink-0">{label}</span>
+    <div className="flex items-center border-b border-border px-4 py-2.5 last:border-0">
+      <span className="w-20 shrink-0 text-xs text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );
@@ -147,7 +297,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="px-4 py-2.5">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm mt-0.5 truncate">{value}</p>
+      <p className="mt-0.5 truncate text-sm">{value}</p>
     </div>
   );
 }

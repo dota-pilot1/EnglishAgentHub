@@ -36,6 +36,9 @@ public class User {
     @Column(nullable = false)
     private boolean active;
 
+    @Column(name = "openai_api_key", columnDefinition = "TEXT")
+    private String openAiApiKeyEncrypted;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -62,5 +65,13 @@ public class User {
     public void updateProfile(String email, String username) {
         this.email = email;
         this.username = username;
+    }
+
+    public void setOpenAiApiKeyEncrypted(String encryptedOrNull) {
+        this.openAiApiKeyEncrypted = encryptedOrNull;
+    }
+
+    public boolean hasOpenAiApiKey() {
+        return openAiApiKeyEncrypted != null && !openAiApiKeyEncrypted.isBlank();
     }
 }

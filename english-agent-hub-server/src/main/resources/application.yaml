@@ -48,6 +48,10 @@ openai:
     model: ${OPENAI_REALTIME_MODEL:gpt-realtime-2}
     voice: ${OPENAI_REALTIME_VOICE:marin}
 
+app:
+  security:
+    api-key-secret: ${API_KEY_SECRET:english-agent-hub-dev-api-key-secret-change-in-production}
+
 jwt:
   secret: ${JWT_SECRET:english-agent-hub-dev-secret-key-must-be-at-least-32-bytes-long}
   access-token-expiration-ms: 1800000
