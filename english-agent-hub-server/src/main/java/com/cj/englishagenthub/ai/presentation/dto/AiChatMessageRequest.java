@@ -9,6 +9,9 @@ public record AiChatMessageRequest(
 
         @NotBlank
         @Size(max = 12000)
-        String message
+        String message,
+
+        @Size(max = 6000)
+        String instructions
 ) {
 }

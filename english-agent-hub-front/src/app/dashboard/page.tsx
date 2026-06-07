@@ -68,7 +68,7 @@ function DashboardInner() {
               오늘 연습할 영어 대화 모드를 선택하세요
             </h1>
             <p className="mt-3 text-base leading-7 text-muted-foreground">
-              기사 토론, 상황극, 퀴즈 세 가지 흐름으로 시작하고 나중에 Spring AI와 GPT Realtime API 세션을 연결하면 됩니다.
+              미국 친구와의 일상 대화, 상황극, 퀴즈 세 가지 흐름으로 가볍게 영어 연습을 시작하세요.
             </p>
           </div>
           <div className="rounded-md border border-border bg-background px-4 py-3 text-sm text-muted-foreground">

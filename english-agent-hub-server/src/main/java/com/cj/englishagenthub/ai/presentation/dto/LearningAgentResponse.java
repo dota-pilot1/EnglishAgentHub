@@ -12,7 +12,8 @@ public record LearningAgentResponse(
         String level,
         String sessionGoal,
         List<String> skills,
-        List<String> starterPrompts
+        List<String> starterPrompts,
+        String systemPrompt
 ) {
     public static LearningAgentResponse from(LearningAgentType type) {
         return new LearningAgentResponse(
@@ -23,7 +24,8 @@ public record LearningAgentResponse(
                 type.level(),
                 type.sessionGoal(),
                 type.skills(),
-                type.starterPrompts()
+                type.starterPrompts(),
+                type.systemPrompt()
         );
     }
 }

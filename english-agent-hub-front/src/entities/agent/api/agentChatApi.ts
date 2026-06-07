@@ -7,6 +7,7 @@ const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4301";
 export type AiChatMessage = {
   agentId: string;
   message: string;
+  instructions?: string;
 };
 
 export type AiChatMessageResponse = {
@@ -27,6 +28,10 @@ export type TranslateToEnglishResponse = {
 
 export type TranslateToKoreanResponse = {
   text: string;
+};
+
+export type ExpressionFeedbackResponse = {
+  content: string;
 };
 
 async function refreshTokens(): Promise<string> {
@@ -122,9 +127,9 @@ export const agentChatApi = {
     }
   },
 
-  createRealtimeClientSecret: (agentId: string, autoKoEn = false) =>
+  createRealtimeClientSecret: (agentId: string, autoKoEn = false, instructions?: string) =>
     api
-      .post<RealtimeClientSecretResponse>("/api/realtime/client-secret", { agentId, autoKoEn })
+      .post<RealtimeClientSecretResponse>("/api/realtime/client-secret", { agentId, autoKoEn, instructions })
       .then((r) => r.data),
 
   translateToEnglish: (text: string) =>
@@ -136,4 +141,45 @@ export const agentChatApi = {
     api
       .post<TranslateToKoreanResponse>("/api/ai/translate-to-korean", { text })
       .then((r) => r.data),
+
+  getExpressionFeedback: (text: string) =>
+    api
+      .post<ExpressionFeedbackResponse>("/api/ai/expression-feedback", { text })
+      .then((r) => r.data),
+
+  synthesizeSpeech: (text: string) =>
+    api
+      .post<ArrayBuffer>(
+        "/api/ai/speech",
+        { text },
+        { responseType: "arraybuffer", timeout: 30_000 }
+      )
+      .then((r) => r.data),
+
+  transcribeAudio: async (audio: Blob, language = "en") => {
+    const ext = audio.type.includes("ogg")
+      ? "ogg"
+      : audio.type.includes("mp4")
+        ? "mp4"
+        : audio.type.includes("mpeg")
+          ? "mp3"
+          : "webm";
+    const form = new FormData();
+    form.append("file", audio, `audio.${ext}`);
+    form.append("language", language);
+
+    const doFetch = (token: string | null) =>
+      fetch(`${baseURL}/api/ai/transcribe`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+
+    let response = await doFetch(tokenStorage.getAccess());
+    if (response.status === 401) {
+      response = await doFetch(await refreshTokens());
+    }
+    if (!response.ok) throw new Error(`transcribe failed: ${response.status}`);
+    return (await response.json()) as { text: string };
+  },
 };

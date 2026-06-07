@@ -5,6 +5,11 @@ spring:
   application:
     name: english-agent-hub-server
 
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+
   config:
     import:
       - optional:file:../.env[.properties]
@@ -35,6 +40,10 @@ spring:
           temperature: 1
 
 openai:
+  translation:
+    model: ${OPENAI_TRANSLATION_MODEL:gpt-5-nano}
+  transcribe:
+    model: ${OPENAI_TRANSCRIBE_MODEL:gpt-4o-mini-transcribe}
   realtime:
     model: ${OPENAI_REALTIME_MODEL:gpt-realtime-2}
     voice: ${OPENAI_REALTIME_VOICE:marin}

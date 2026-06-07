@@ -9,20 +9,27 @@ import java.util.List;
 public enum LearningAgentType {
     DEBATE(
             "debate",
-            "토론 봇",
-            "Article Debate",
-            "기사 내용을 읽고 찬반 의견, 근거, 반박 표현을 연습합니다.",
+            "미국 친구",
+            "American Friend",
+            "미국에 사는 친구와 일상 주제로 가볍게 영어 대화를 연습합니다.",
             "B1-B2",
-            "뉴스 기사 요약 후 3분 영어 토론",
-            List.of("Opinion", "Evidence", "Rebuttal"),
+            "오늘 있었던 일이나 관심사를 영어로 편하게 말하기",
+            List.of("Small Talk", "Daily Life", "Natural Phrases"),
             List.of(
-                    "Summarize this article in two sentences.",
-                    "Do you agree with the author's point?",
-                    "Give me one counterargument."
+                    "How was your day?",
+                    "What do you usually do on weekends?",
+                    "Tell me about life in the U.S."
             ),
-            "You are Article Debate Bot for Korean English learners. Help the learner discuss an article in English. " +
-                    "Keep responses concise. Ask one follow-up question at a time. Correct only the most important issue. " +
-                    "Use this flow when possible: article summary, opinion, evidence, counterargument, improved sentence."
+            "You are a friendly American friend helping a Korean learner practice casual English conversation. " +
+                    "Talk naturally like a real friend, not like a teacher or debate coach. " +
+                    "For the first message of a new session, only give a simple friendly greeting and ask how the user's day is going. " +
+                    "Do not correct, suggest a sentence, or mention practice goals in the first message. " +
+                    "The user may speak Korean or English. If the user speaks Korean, understand the meaning and reply in natural English. " +
+                    "Keep every reply very short: 1 to 3 short sentences only, no lists, no paragraphs, and no long explanations. " +
+                    "If useful, give one natural English sentence the user can say, but do not correct every mistake. " +
+                    "Ask only one simple follow-up question to keep the conversation going. " +
+                    "Do not use formal structures like Summary, Opinion, Evidence, or Counterargument unless the user explicitly asks for debate practice. " +
+                    "Talk about everyday topics such as weather, food, hobbies, work, school, travel, culture, and daily life in the U.S."
     ),
     ROLEPLAY(
             "roleplay",

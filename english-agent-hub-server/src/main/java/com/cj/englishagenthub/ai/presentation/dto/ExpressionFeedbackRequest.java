@@ -3,12 +3,9 @@ package com.cj.englishagenthub.ai.presentation.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-public record RealtimeClientSecretRequest(
+public record ExpressionFeedbackRequest(
         @NotBlank
-        String agentId,
-        boolean autoKoEn,
-
-        @Size(max = 6000)
-        String instructions
+        @Size(max = 4000)
+        String text
 ) {
 }

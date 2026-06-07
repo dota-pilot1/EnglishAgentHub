@@ -28,7 +28,9 @@ public class RealtimeSessionService {
     public RealtimeClientSecretResponse createClientSecret(RealtimeClientSecretRequest request) {
         requireOpenAiApiKey();
         LearningAgentType agentType = LearningAgentType.fromId(request.agentId());
-        String instructions = agentType.systemPrompt();
+        String instructions = StringUtils.hasText(request.instructions())
+                ? request.instructions()
+                : agentType.systemPrompt();
         Map<String, Object> transcription = request.autoKoEn()
                 ? Map.of(
                         "model", "gpt-4o-mini-transcribe",
@@ -43,18 +45,25 @@ public class RealtimeSessionService {
 
         Map<String, Object> audioInput = new HashMap<>();
         audioInput.put("transcription", transcription);
-        if (request.autoKoEn()) {
-            audioInput.put("turn_detection", Map.of(
-                    "type", "server_vad",
-                    "create_response", false
-            ));
-        }
+
+        Map<String, Object> turnDetection = new HashMap<>();
+        turnDetection.put("type", "server_vad");
+        turnDetection.put("threshold", 0.75);
+        turnDetection.put("prefix_padding_ms", 300);
+        turnDetection.put("silence_duration_ms", 900);
+        turnDetection.put("create_response", !request.autoKoEn());
+        audioInput.put("turn_detection", turnDetection);
 
         Map<String, Object> body = Map.of(
                 "session", Map.of(
                         "type", "realtime",
                         "model", realtimeProperties.model(),
                         "instructions", instructions,
+                        "truncation", Map.of(
+                                "type", "retention_ratio",
+                                "retention_ratio", 0.8,
+                                "token_limits", Map.of("post_instructions", 1200)
+                        ),
                         "audio", Map.of(
                                 "input", audioInput,
                                 "output", Map.of("voice", realtimeProperties.voice())

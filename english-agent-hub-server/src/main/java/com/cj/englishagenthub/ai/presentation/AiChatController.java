@@ -3,6 +3,10 @@ package com.cj.englishagenthub.ai.presentation;
 import com.cj.englishagenthub.ai.application.AiChatService;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageRequest;
 import com.cj.englishagenthub.ai.presentation.dto.AiChatMessageResponse;
+import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackRequest;
+import com.cj.englishagenthub.ai.presentation.dto.ExpressionFeedbackResponse;
+import com.cj.englishagenthub.ai.presentation.dto.SpeechRequest;
+import com.cj.englishagenthub.ai.presentation.dto.TranscribeResponse;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishRequest;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToEnglishResponse;
 import com.cj.englishagenthub.ai.presentation.dto.TranslateToKoreanRequest;
@@ -14,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -43,6 +48,26 @@ public class AiChatController {
     @Operation(summary = "영어 학습용 영한 변환")
     public TranslateToKoreanResponse translateToKorean(@Valid @RequestBody TranslateToKoreanRequest request) {
         return aiChatService.translateToKorean(request);
+    }
+
+    @PostMapping("/expression-feedback")
+    @Operation(summary = "자연스러운 영어 표현 피드백")
+    public ExpressionFeedbackResponse expressionFeedback(@Valid @RequestBody ExpressionFeedbackRequest request) {
+        return aiChatService.expressionFeedback(request);
+    }
+
+    @PostMapping(value = "/speech", produces = "audio/mpeg")
+    @Operation(summary = "텍스트 음성 변환 (TTS)")
+    public byte[] speech(@Valid @RequestBody SpeechRequest request) {
+        return aiChatService.speech(request);
+    }
+
+    @PostMapping(value = "/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "음성 → 텍스트 (STT)")
+    public TranscribeResponse transcribe(
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(value = "language", required = false) String language) {
+        return aiChatService.transcribe(file, language);
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

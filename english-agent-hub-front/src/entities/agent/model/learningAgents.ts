@@ -7,4 +7,5 @@ export type LearningAgent = {
   sessionGoal: string;
   skills: string[];
   starterPrompts: string[];
+  systemPrompt: string;
 };
