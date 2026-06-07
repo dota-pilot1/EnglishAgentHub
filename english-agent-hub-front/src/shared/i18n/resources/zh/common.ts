@@ -1,0 +1,15 @@
+export const common = {
+  brand: "EnglishAgentHub",
+  tagline: "美发沙龙预约管理平台。",
+  description: "即将添加预约管理、客户管理、员工排班等功能。",
+  loading: "处理中...",
+  confirm: "确认",
+  cancel: "取消",
+  save: "保存",
+  delete: "删除",
+  edit: "编辑",
+  close: "关闭",
+  search: "搜索",
+  language: "语言",
+  theme: "主题",
+};

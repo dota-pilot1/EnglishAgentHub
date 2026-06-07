@@ -1,0 +1,55 @@
+server:
+  port: 4301
+
+spring:
+  application:
+    name: english-agent-hub-server
+
+  config:
+    import:
+      - optional:file:../.env[.properties]
+      - optional:file:.env[.properties]
+      - optional:classpath:application-local.yaml
+
+  datasource:
+    url: jdbc:postgresql://localhost:5436/english_agent_hub
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: true
+
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-5-mini}
+          temperature: 1
+
+openai:
+  realtime:
+    model: ${OPENAI_REALTIME_MODEL:gpt-realtime}
+    voice: ${OPENAI_REALTIME_VOICE:marin}
+
+jwt:
+  secret: ${JWT_SECRET:english-agent-hub-dev-secret-key-must-be-at-least-32-bytes-long}
+  access-token-expiration-ms: 1800000
+  refresh-token-expiration-ms: 604800000
+  issuer: english-agent-hub
+
+aws:
+  s3:
+    access-key: ${AWS_ACCESS_KEY_ID:}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    bucket: ${AWS_S3_BUCKET_NAME:}
+    region: ${AWS_S3_REGION:ap-northeast-2}
+    prefix: ${AWS_S3_PREFIX:english-agent-hub}
+    presign-expires-seconds: 300

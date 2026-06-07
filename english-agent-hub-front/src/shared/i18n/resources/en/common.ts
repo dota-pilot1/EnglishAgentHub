@@ -1,0 +1,15 @@
+export const common = {
+  brand: "EnglishAgentHub",
+  tagline: "Hair salon booking management platform.",
+  description: "Appointment, customer, and staff scheduling features are coming soon.",
+  loading: "Loading...",
+  confirm: "Confirm",
+  cancel: "Cancel",
+  save: "Save",
+  delete: "Delete",
+  edit: "Edit",
+  close: "Close",
+  search: "Search",
+  language: "Language",
+  theme: "Theme",
+};

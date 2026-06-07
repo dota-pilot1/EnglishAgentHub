@@ -1,0 +1,15 @@
+export const common = {
+  brand: "EnglishAgentHub",
+  tagline: "ヘアサロン予約管理プラットフォームです。",
+  description: "予約管理、顧客管理、スタッフスケジュールなどの機能が追加予定です。",
+  loading: "読み込み中...",
+  confirm: "確認",
+  cancel: "キャンセル",
+  save: "保存",
+  delete: "削除",
+  edit: "編集",
+  close: "閉じる",
+  search: "検索",
+  language: "言語",
+  theme: "テーマ",
+};
