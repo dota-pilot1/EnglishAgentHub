@@ -38,6 +38,9 @@ spring:
         options:
           model: ${OPENAI_CHAT_MODEL:gpt-5-mini}
           temperature: 1
+      embedding:
+        options:
+          model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
 
 openai:
   translation:
@@ -51,6 +54,9 @@ openai:
 app:
   security:
     api-key-secret: ${API_KEY_SECRET:english-agent-hub-dev-api-key-secret-change-in-production}
+
+cors:
+  allowed-origin: ${ALLOWED_ORIGIN:http://localhost:4300}
 
 jwt:
   secret: ${JWT_SECRET:english-agent-hub-dev-secret-key-must-be-at-least-32-bytes-long}

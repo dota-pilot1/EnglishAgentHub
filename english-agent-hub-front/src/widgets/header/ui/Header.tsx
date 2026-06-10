@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import {
   BadgeCheck,
   BarChart3,
+  BookOpenCheck,
   ChevronDown,
   ClipboardList,
   Eye,
@@ -68,6 +69,7 @@ const adminMenuMeta: Record<string, { description: string; icon: LucideIcon }> =
   ADMIN_USERS: { description: "회원 계정을 확인하고 역할을 조정합니다.", icon: Users },
   ADMIN_ROLES: { description: "시스템 롤과 커스텀 롤을 관리합니다.", icon: BadgeCheck },
   ADMIN_ROLE_PERMISSIONS: { description: "역할별 접근 권한을 매핑합니다.", icon: ShieldCheck },
+  ADMIN_QUESTION_BANK: { description: "문제 저장, 조회, 유사문항 PoC 데이터를 관리합니다.", icon: BookOpenCheck },
   ADMIN_SITE_SETTINGS: { description: "메인 화면과 매장 소개 설정을 편집합니다.", icon: MonitorCog },
   ADMIN_SCREEN_SETTINGS: { description: "화면 안내 문구와 표시 설정을 편집합니다.", icon: MonitorCog },
   ADMIN_NAV_MANAGEMENT: { description: "상단 헤더 메뉴와 노출 구성을 조정합니다.", icon: Menu },

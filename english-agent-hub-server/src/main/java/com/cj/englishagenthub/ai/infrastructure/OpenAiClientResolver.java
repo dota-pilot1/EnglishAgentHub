@@ -5,7 +5,9 @@ import com.cj.englishagenthub.common.security.ApiKeyCipher;
 import com.cj.englishagenthub.user.domain.User;
 import com.cj.englishagenthub.user.infrastructure.UserRepository;
 import com.openai.client.OpenAIClient;
+import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -66,11 +68,19 @@ public class OpenAiClientResolver {
     public ChatClient.Builder resolveChatClientBuilder() {
         String userKey = currentUserOpenAiKey();
         if (StringUtils.hasText(userKey)) {
+            // Spring AI 2.0-M7의 OpenAiChatModel은 .call()용 동기 클라이언트와
+            // .stream()용 비동기 클라이언트를 둘 다 받는다. 둘 중 하나만 주면
+            // 다른 쪽은 환경변수 OPENAI_API_KEY로 fallback해서 비어 있으면
+            // "This request requires apiKey" 예외가 난다.
             OpenAIClient sdkClient = OpenAIOkHttpClient.builder()
+                    .apiKey(userKey)
+                    .build();
+            OpenAIClientAsync sdkClientAsync = OpenAIOkHttpClientAsync.builder()
                     .apiKey(userKey)
                     .build();
             OpenAiChatModel model = OpenAiChatModel.builder()
                     .openAiClient(sdkClient)
+                    .openAiClientAsync(sdkClientAsync)
                     .build();
             return ChatClient.builder(model);
         }

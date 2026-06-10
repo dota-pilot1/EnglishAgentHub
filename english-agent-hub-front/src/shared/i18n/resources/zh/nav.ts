@@ -4,6 +4,7 @@ export const nav = {
   users: "用户管理",
   roleManagement: "角色管理",
   rolePermissions: "角色与权限",
+  questionBank: "题库",
   siteSettings: "店铺设置",
   menuManagement: "页头菜单管理",
   profile: "我的资料",

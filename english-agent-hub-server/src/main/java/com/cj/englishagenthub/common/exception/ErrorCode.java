@@ -33,6 +33,7 @@ public enum ErrorCode {
     SITE_SETTING_NOT_FOUND(HttpStatus.NOT_FOUND, "SITE_001", "사이트 설정을 찾을 수 없습니다."),
     CHARACTER_NOT_FOUND(HttpStatus.NOT_FOUND, "CHAR_001", "캐릭터를 찾을 수 없습니다."),
     CHARACTER_NOT_OWNER(HttpStatus.FORBIDDEN, "CHAR_002", "본인이 만든 캐릭터만 수정/삭제할 수 있습니다."),
+    QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "QUES_001", "문제를 찾을 수 없습니다."),
     MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "MENU_001", "메뉴를 찾을 수 없습니다."),
     MENU_CODE_DUPLICATE(HttpStatus.CONFLICT, "MENU_002", "이미 존재하는 메뉴 코드입니다."),
     MENU_PARENT_NOT_FOUND(HttpStatus.NOT_FOUND, "MENU_003", "부모 메뉴를 찾을 수 없습니다."),

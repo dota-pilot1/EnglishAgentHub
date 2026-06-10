@@ -1,76 +1,81 @@
 # CORS 설정
 
-## 현재 상태
+## 목적
 
-EnglishAgentHub 백엔드는 현재 CORS 허용 origin이 코드에 하드코딩되어 있다.
+EnglishAgentHub 프론트는 `https://dxline-tallent.com`에서 서빙되고 API도 같은 도메인의 `/api/*`로 호출된다. **같은 도메인**이므로 사실 CORS는 발생하지 않는다.
 
-```java
-config.setAllowedOrigins(List.of("http://localhost:4300"));
-```
+다만 로컬 개발(`http://localhost:4300`)과 향후 도메인 변경에 대비해 백엔드는 `ALLOWED_ORIGIN` 환경변수로 허용 origin을 받는다.
 
-파일:
+## 백엔드 설정
 
-```text
-english-agent-hub-server/src/main/java/com/cj/englishagenthub/config/SecurityConfig.java
-```
-
-운영 도메인으로 배포하려면 `https://english.dxline-tallent.com`을 허용해야 한다.
-
-## 권장 수정
-
-`application.yaml`에 설정값을 추가한다.
+`SecurityConfig` (또는 `WebMvcConfig`)는 다음 값을 읽도록 돼 있다.
 
 ```yaml
 cors:
   allowed-origin: ${ALLOWED_ORIGIN:http://localhost:4300}
 ```
 
-`SecurityConfig`에서 환경값을 읽는다.
-
-```java
-@Value("${cors.allowed-origin:http://localhost:4300}")
-private String allowedOrigin;
-```
-
-그리고 CORS 설정을 아래처럼 바꾼다.
-
-```java
-config.setAllowedOrigins(Arrays.stream(allowedOrigin.split(","))
-        .map(String::trim)
-        .filter(origin -> !origin.isBlank())
-        .toList());
-```
-
-운영 `.env`:
+EC2 `.env`:
 
 ```env
-ALLOWED_ORIGIN=https://english.dxline-tallent.com
+ALLOWED_ORIGIN=https://dxline-tallent.com
 ```
 
-개발과 운영을 함께 허용할 때:
+쉼표로 여러 개를 줄 수 있다:
 
 ```env
-ALLOWED_ORIGIN=https://english.dxline-tallent.com,http://localhost:4300
+ALLOWED_ORIGIN=https://dxline-tallent.com,http://localhost:4300
 ```
+
+## 코드 위치 점검
+
+> 가이드 작성 시점 기준 코드에서 `ALLOWED_ORIGIN`을 읽는지 확인 필요. 다른 이름으로 하드코딩돼 있다면 Spring Boot 재시작 전에 수정해 둔다.
+
+확인 명령:
+
+```bash
+grep -rn "allowedOrigin\|ALLOWED_ORIGIN\|addAllowedOrigin" english-agent-hub-server/src/main/java
+```
+
+검색 결과가 비어 있으면 `SecurityConfig`(또는 별도 `WebConfig`)에 다음을 추가한다.
+
+```java
+@Bean
+public CorsConfigurationSource corsConfigurationSource(
+        @Value("${cors.allowed-origin:http://localhost:4300}") String allowedOrigin) {
+    CorsConfiguration cfg = new CorsConfiguration();
+    cfg.setAllowedOrigins(Arrays.stream(allowedOrigin.split(",")).map(String::trim).toList());
+    cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+    cfg.setAllowedHeaders(List.of("*"));
+    cfg.setExposedHeaders(List.of("Authorization"));
+    cfg.setAllowCredentials(true);
+    cfg.setMaxAge(3600L);
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/**", cfg);
+    return source;
+}
+```
+
+그리고 Security 필터 체인에서 `.cors(c -> c.configurationSource(corsConfigurationSource(...)))`.
 
 ## 검증
 
 ```bash
-curl -i -X OPTIONS \
-  -H "Origin: https://english.dxline-tallent.com" \
-  -H "Access-Control-Request-Method: POST" \
-  https://english.dxline-tallent.com/api/auth/login
+# preflight
+curl -sI -X OPTIONS https://dxline-tallent.com/api/auth/login \
+  -H "Origin: https://dxline-tallent.com" \
+  -H "Access-Control-Request-Method: POST" | grep -i "access-control"
+
+# 본 요청
+curl -sI https://dxline-tallent.com/api/site-settings \
+  -H "Origin: https://dxline-tallent.com" | grep -i "access-control"
 ```
 
-정상 응답에는 아래 헤더가 있어야 한다.
+응답에 `Access-Control-Allow-Origin: https://dxline-tallent.com`이 보이면 OK.
 
-```text
-Access-Control-Allow-Origin: https://english.dxline-tallent.com
-Access-Control-Allow-Credentials: true
-```
+## 흔한 문제
 
-## 주의
-
-- `allowCredentials(true)`를 사용하므로 `allowedOrigins("*")`는 쓰면 안 된다.
-- 같은 EC2를 쓰더라도 브라우저 기준 origin이 다르면 CORS 대상이다.
-- 프론트 `NEXT_PUBLIC_API_URL`과 백엔드 `ALLOWED_ORIGIN`을 같은 운영 도메인 기준으로 맞춘다.
+- **`No 'Access-Control-Allow-Origin'`**: `.env`의 `ALLOWED_ORIGIN` 값에 끝 슬래시(`/`)가 들어가 있거나 `https` 누락. 정확히 `https://dxline-tallent.com`.
+- **credentials 요청만 실패**: `allowCredentials=true`인데 `allowedOrigins`가 `*`이면 안 된다. 명시적 도메인만 허용.
+- **로컬에서만 안 됨**: `.env`에 `,http://localhost:4300`을 추가해 두 origin 허용.
+- **S3에서 직접 fetch하다 CORS 에러**: 그런 흐름이 없도록 만든다. 정적 파일은 CloudFront(`dxline-tallent.com`)에서만 서빙.

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bot, Languages, ListTree, Loader2, Mic, MicOff, Newspaper, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
+import { ArrowLeft, Bot, KeyRound, Languages, ListTree, Loader2, Mic, MicOff, Newspaper, Paperclip, Send, Settings2, Sparkles, Square, Trash2, Volume2, WandSparkles, X } from "lucide-react";
 import { agentChatApi } from "@/entities/agent/api/agentChatApi";
 import type { ChatTurn, ChunkAnalysisResponse } from "@/entities/agent/api/agentChatApi";
 import type { LearningAgent } from "@/entities/agent/model/learningAgents";
@@ -1430,6 +1430,13 @@ export function AgentChatClient({ agentId }: { agentId: string }) {
                   )}
                 </div>
                 <p className="mt-1 truncate text-sm text-muted-foreground">{agent.sessionGoal}</p>
+                <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <KeyRound className="h-3.5 w-3.5 text-primary" />
+                  AI 응답은 개인 OpenAI API 키가 필요합니다.
+                  <Link href="/profile" className="font-semibold text-foreground underline-offset-4 hover:underline">
+                    프로필에서 등록
+                  </Link>
+                </p>
               </div>
             </button>
 

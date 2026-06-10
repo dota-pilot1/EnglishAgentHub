@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BookOpenText, Bot, Drama, MoreVertical, Newspaper, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, BookOpenText, Bot, Drama, KeyRound, MoreVertical, Newspaper, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { RequireAuth } from "@/widgets/guards/RequireAuth";
 import { agentChatApi } from "@/entities/agent/api/agentChatApi";
 import type { LearningAgent } from "@/entities/agent/model/learningAgents";
@@ -114,6 +114,14 @@ function DashboardInner() {
             <p className="mt-3 text-base leading-7 text-muted-foreground">
               기본 모드 + 다른 사람들이 만든 공유 캐릭터 중에서 골라 시작하거나, 직접 캐릭터를 추가해보세요.
             </p>
+            <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+              <KeyRound className="h-4 w-4 text-primary" />
+              AI 응답을 사용하려면 개인 OpenAI API 키를{" "}
+              <Link href="/profile" className="font-semibold text-foreground underline-offset-4 hover:underline">
+                프로필
+              </Link>
+              에 등록하세요.
+            </div>
           </div>
           <button
             type="button"

@@ -4,6 +4,7 @@ export const nav = {
   users: "ユーザー管理",
   roleManagement: "ロール管理",
   rolePermissions: "ロール・権限マッピング",
+  questionBank: "問題バンク",
   siteSettings: "店舗設定",
   menuManagement: "ヘッダーメニュー管理",
   profile: "マイプロフィール",

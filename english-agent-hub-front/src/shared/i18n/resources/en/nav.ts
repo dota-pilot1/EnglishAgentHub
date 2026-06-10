@@ -4,6 +4,7 @@ export const nav = {
   users: "Users",
   roleManagement: "Roles",
   rolePermissions: "Roles & Permissions",
+  questionBank: "Question Bank",
   siteSettings: "Store Settings",
   menuManagement: "Header Menu Management",
   profile: "My Profile",
