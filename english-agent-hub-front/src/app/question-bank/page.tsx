@@ -12,6 +12,7 @@ import {
   Filter,
   Layers,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import { RequireRole } from "@/widgets/guards/RequireRole";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { SelectField } from "@/shared/ui/SelectField";
 import {
   questionApi,
   type EmbeddingStatus,
@@ -29,6 +31,7 @@ import {
   type QuestionResponse,
   type QuestionSubject,
   type QuestionUpsertRequest,
+  type SimilarQuestion,
 } from "@/entities/question/api/questionApi";
 import { toast, toastError } from "@/shared/lib/toast";
 
@@ -39,21 +42,21 @@ const subjects: { value: QuestionSubject; label: string; tone: string }[] = [
 ];
 
 const difficulties: { value: QuestionDifficulty; label: string }[] = [
-  { value: "easy", label: "쉬움" },
-  { value: "medium", label: "보통" },
-  { value: "hard", label: "어려움" },
+  { value: "easy", label: "하" },
+  { value: "medium", label: "중" },
+  { value: "hard", label: "상" },
 ];
 
 const initialForm: QuestionUpsertRequest = {
   subject: "math",
-  category: "이차방정식",
-  topic: "인수분해",
+  category: "",
+  topic: "",
   difficulty: "medium",
-  question: "x² - 5x + 6 = 0의 해를 구하시오.",
+  question: "",
   choices: [],
-  answer: "x = 2, 3",
-  explanation: "인수분해하면 (x-2)(x-3)=0이므로 해는 2와 3입니다.",
-  keywords: ["이차방정식", "인수분해", "근"],
+  answer: "",
+  explanation: "",
+  keywords: [],
   embeddingText: "",
 };
 
@@ -83,24 +86,19 @@ const splitCsv = (value: string) =>
 
 const buildEmbeddingTextPreview = (
   form: QuestionUpsertRequest,
-  choicesText: string,
   keywordsText: string,
 ) => {
-  const choices = splitLines(choicesText);
   const keywords = splitCsv(keywordsText);
-  const lines = [
+  return [
     `과목: ${subjectLabel(form.subject)}`,
     `카테고리: ${form.category}`,
     `주제: ${form.topic}`,
     `난이도: ${difficultyLabel(form.difficulty)}`,
     `문제: ${form.question}`,
-    choices.length > 0 ? `보기: ${choices.join(", ")}` : null,
     `정답: ${form.answer}`,
     `해설: ${form.explanation}`,
-    keywords.length > 0 ? `키워드: ${keywords.join(", ")}` : null,
-  ];
-
-  return lines.filter(Boolean).join("\n");
+    `키워드: ${keywords.join(", ")}`,
+  ].join("\n");
 };
 
 export default function QuestionBankPage() {
@@ -117,9 +115,11 @@ function QuestionBankContent() {
   const [form, setForm] = useState<QuestionUpsertRequest>(initialForm);
   const [choicesText, setChoicesText] = useState("");
   const [keywordsText, setKeywordsText] = useState(initialForm.keywords?.join(", ") ?? "");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmEmbedKind, setConfirmEmbedKind] = useState<null | "PENDING" | "FAILED">(null);
+  const [embedTarget, setEmbedTarget] = useState<QuestionResponse | null>(null);
+  const [similarTarget, setSimilarTarget] = useState<QuestionResponse | null>(null);
 
   const { data = [], isLoading, isFetching } = useQuery({
     queryKey: ["questions", filters],
@@ -155,17 +155,33 @@ function QuestionBankContent() {
     });
   }, [allData]);
 
+  const resetFormState = () => {
+    setForm(initialForm);
+    setChoicesText("");
+    setKeywordsText(initialForm.keywords?.join(", ") ?? "");
+    setEditingId(null);
+  };
+
   const createMutation = useMutation({
     mutationFn: questionApi.create,
     onSuccess: () => {
       toast.success("문제를 저장했습니다.");
       qc.invalidateQueries({ queryKey: ["questions"] });
-      setForm(initialForm);
-      setChoicesText("");
-      setKeywordsText(initialForm.keywords?.join(", ") ?? "");
+      resetFormState();
       setFormOpen(false);
     },
     onError: (e) => toastError(e, "문제 저장에 실패했습니다."),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: QuestionUpsertRequest }) => questionApi.update(id, body),
+    onSuccess: () => {
+      toast.success("문제를 수정했습니다.");
+      qc.invalidateQueries({ queryKey: ["questions"] });
+      resetFormState();
+      setFormOpen(false);
+    },
+    onError: (e) => toastError(e, "문제 수정에 실패했습니다."),
   });
 
   const deleteMutation = useMutation({
@@ -181,6 +197,29 @@ function QuestionBankContent() {
     queryKey: ["questions", "embedding-status"],
     queryFn: questionApi.embeddingStatus,
     refetchInterval: 30000,
+  });
+
+  const { data: similarList = [], isFetching: isFetchingSimilar } = useQuery({
+    queryKey: ["questions", "similar", similarTarget?.id],
+    queryFn: () => questionApi.findSimilar(similarTarget!.id, 3),
+    enabled: !!similarTarget,
+  });
+
+  const embedOneMutation = useMutation({
+    mutationFn: (id: string) => questionApi.embedOne(id),
+    onSuccess: (updated) => {
+      if (updated.embeddingStatus === "COMPLETED") {
+        toast.success("임베딩 변환이 완료됐습니다.");
+      } else if (updated.embeddingStatus === "FAILED") {
+        toastError(new Error("OpenAI 호출 실패"), "임베딩 변환에 실패했습니다.");
+      }
+      qc.invalidateQueries({ queryKey: ["questions"] });
+      setEmbedTarget(null);
+    },
+    onError: (e) => {
+      toastError(e, "임베딩 변환 요청에 실패했습니다.");
+      setEmbedTarget(null);
+    },
   });
 
   const embedMutation = useMutation({
@@ -204,30 +243,52 @@ function QuestionBankContent() {
   });
 
   const handleSubjectChange = (subject: QuestionSubject) => {
-    const presets: Partial<Record<QuestionSubject, Pick<QuestionUpsertRequest, "category" | "topic">>> = {
-      math: { category: "이차방정식", topic: "인수분해" },
-      korean_history: { category: "조선시대", topic: "훈민정음" },
-      english: { category: "고등 영어", topic: "빈칸추론" },
-    };
-    setForm((cur) => ({ ...cur, subject, ...(presets[subject] ?? {}) }));
+    setForm((cur) => ({ ...cur, subject }));
   };
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    createMutation.mutate({
+    const body: QuestionUpsertRequest = {
       ...form,
       choices: splitLines(choicesText),
       keywords: splitCsv(keywordsText),
-      embeddingText: form.embeddingText?.trim() || undefined,
-    });
+      embeddingText: undefined,
+    };
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, body });
+    } else {
+      createMutation.mutate(body);
+    }
   };
 
-  const handleFillEmbeddingText = () => {
-    setForm((cur) => ({
-      ...cur,
-      embeddingText: buildEmbeddingTextPreview(cur, choicesText, keywordsText),
-    }));
+  const handleEdit = (question: QuestionResponse) => {
+    setForm({
+      subject: question.subject,
+      category: question.category,
+      topic: question.topic,
+      difficulty: question.difficulty,
+      question: question.question,
+      choices: question.choices,
+      answer: question.answer,
+      explanation: question.explanation,
+      keywords: question.keywords,
+      embeddingText: "",
+    });
+    setChoicesText(question.choices.join("\n"));
+    setKeywordsText(question.keywords.join(", "));
+    setEditingId(question.id);
+    setFormOpen(true);
   };
+
+  const handleCloseForm = () => {
+    setFormOpen(false);
+    resetFormState();
+  };
+
+  const embeddingTextPreview = useMemo(
+    () => buildEmbeddingTextPreview(form, keywordsText),
+    [form, keywordsText],
+  );
 
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/25 px-4 py-5">
@@ -283,19 +344,21 @@ function QuestionBankContent() {
           <div
             className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/35 px-4 py-10"
             onClick={(e) => {
-              if (e.target === e.currentTarget) setFormOpen(false);
+              if (e.target === e.currentTarget) handleCloseForm();
             }}
           >
           <form onSubmit={handleSubmit} className="w-full max-w-6xl overflow-hidden rounded-lg border border-border bg-background shadow-xl">
             <div className="flex items-center justify-between border-b border-border bg-muted/35 px-5 py-4">
               <div>
                 <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Question</p>
-                <h2 className="mt-1 text-lg font-bold tracking-tight">문제 등록</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">embeddingText는 비워두면 서버가 자동 생성합니다.</p>
+                <h2 className="mt-1 text-lg font-bold tracking-tight">
+                  {editingId ? "문제 수정" : "문제 등록"}
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">embeddingText는 우측 미리보기 그대로 서버가 저장합니다.</p>
               </div>
               <button
                 type="button"
-                onClick={() => setFormOpen(false)}
+                onClick={handleCloseForm}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent"
                 aria-label="닫기"
               >
@@ -306,34 +369,18 @@ function QuestionBankContent() {
             <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
               <section className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1.5 text-sm font-semibold">
-                    <span>과목</span>
-                    <select
-                      value={form.subject}
-                      onChange={(e) => handleSubjectChange(e.target.value as QuestionSubject)}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      {subjects.map((subject) => (
-                        <option key={subject.value} value={subject.value}>
-                          {subject.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="space-y-1.5 text-sm font-semibold">
-                    <span>난이도</span>
-                    <select
-                      value={form.difficulty}
-                      onChange={(e) => setForm((cur) => ({ ...cur, difficulty: e.target.value as QuestionDifficulty }))}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      {difficulties.map((difficulty) => (
-                        <option key={difficulty.value} value={difficulty.value}>
-                          {difficulty.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <SelectField
+                    label="과목"
+                    value={form.subject}
+                    onChange={(e) => handleSubjectChange(e.target.value as QuestionSubject)}
+                    options={subjects.map((subject) => ({ value: subject.value, label: subject.label }))}
+                  />
+                  <SelectField
+                    label="난이도"
+                    value={form.difficulty}
+                    onChange={(e) => setForm((cur) => ({ ...cur, difficulty: e.target.value as QuestionDifficulty }))}
+                    options={difficulties.map((difficulty) => ({ value: difficulty.value, label: difficulty.label }))}
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -365,45 +412,38 @@ function QuestionBankContent() {
               </section>
 
               <section className="flex min-h-[520px] flex-col rounded-lg border border-border bg-muted/20">
-                <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-                  <div>
-                    <h3 className="text-sm font-bold">embeddingText</h3>
-                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                      저장 전에 검색용 텍스트를 미리 채우고 필요하면 직접 수정합니다.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleFillEmbeddingText}
-                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-accent"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    미리 채우기
-                  </button>
+                <div className="border-b border-border px-4 py-3">
+                  <h3 className="text-sm font-bold">embeddingText 미리보기</h3>
+                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                    왼쪽 필드를 기반으로 서버가 자동 생성할 검색용 텍스트입니다. 직접 수정할 수 없습니다.
+                  </p>
                 </div>
-                <textarea
-                  value={form.embeddingText ?? ""}
-                  onChange={(e) => setForm((cur) => ({ ...cur, embeddingText: e.target.value }))}
-                  placeholder="비워두면 저장 시 서버가 과목/카테고리/주제/문제/정답/해설/키워드로 자동 생성합니다."
-                  className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-xs leading-6 outline-none"
-                />
+                <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-xs leading-6 text-foreground">
+                  {embeddingTextPreview}
+                </pre>
               </section>
 
               <div className="mt-1 flex justify-end gap-2 border-t border-border pt-4 lg:col-span-2">
                 <button
                   type="button"
-                  onClick={() => setFormOpen(false)}
+                  onClick={handleCloseForm}
                   className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold transition-colors hover:bg-accent"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || updateMutation.isPending}
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
-                  {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                  저장
+                  {createMutation.isPending || updateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : editingId ? (
+                    <Pencil className="h-4 w-4" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  {editingId ? "수정 저장" : "저장"}
                 </button>
               </div>
             </div>
@@ -436,9 +476,10 @@ function QuestionBankContent() {
                 </div>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[140px_1fr_1.4fr_auto]">
-                  <FilterSelect
+                  <SelectField
+                    size="sm"
                     value={filters.difficulty ?? ""}
-                    onChange={(value) => setFilters((cur) => ({ ...cur, difficulty: value as QuestionDifficulty | "" }))}
+                    onChange={(e) => setFilters((cur) => ({ ...cur, difficulty: e.target.value as QuestionDifficulty | "" }))}
                     options={difficulties.map((difficulty) => ({ value: difficulty.value, label: difficulty.label }))}
                     placeholder="전체 난이도"
                   />
@@ -487,8 +528,9 @@ function QuestionBankContent() {
                     <QuestionItem
                       key={question.id}
                       question={question}
-                      expanded={expandedId === question.id}
-                      onToggle={() => setExpandedId((cur) => (cur === question.id ? null : question.id))}
+                      onEdit={() => handleEdit(question)}
+                      onEmbed={() => setEmbedTarget(question)}
+                      onShowSimilar={() => setSimilarTarget(question)}
                       onDelete={() => {
                         if (confirm("이 문제를 삭제할까요?")) deleteMutation.mutate(question.id);
                       }}
@@ -514,22 +556,40 @@ function QuestionBankContent() {
         onConfirm={() => embedMutation.mutate()}
         onCancel={() => setConfirmEmbedKind(null)}
       />
+
+      <SingleEmbedDialog
+        target={embedTarget}
+        loading={embedOneMutation.isPending}
+        onConfirm={() => embedTarget && embedOneMutation.mutate(embedTarget.id)}
+        onCancel={() => setEmbedTarget(null)}
+      />
+
+      <SimilarQuestionsDialog
+        source={similarTarget}
+        results={similarList}
+        loading={isFetchingSimilar}
+        onClose={() => setSimilarTarget(null)}
+      />
     </main>
   );
 }
 
 function QuestionItem({
   question,
-  expanded,
-  onToggle,
+  onEdit,
+  onEmbed,
+  onShowSimilar,
   onDelete,
 }: {
   question: QuestionResponse;
-  expanded: boolean;
-  onToggle: () => void;
+  onEdit: () => void;
+  onEmbed: () => void;
+  onShowSimilar: () => void;
   onDelete: () => void;
 }) {
   const tone = subjects.find((subject) => subject.value === question.subject)?.tone ?? "border-border bg-muted text-foreground";
+  const embedButtonLabel = question.embeddingStatus === "COMPLETED" ? "재임베딩" : "임베딩";
+  const canShowSimilar = question.embeddingStatus === "COMPLETED";
 
   return (
     <article className="rounded-lg border border-border bg-background p-4">
@@ -552,17 +612,37 @@ function QuestionItem({
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={onToggle}
+            onClick={onEmbed}
             className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-semibold hover:bg-accent"
           >
             <Sparkles className="h-4 w-4" />
-            임베딩
+            {embedButtonLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onShowSimilar}
+            disabled={!canShowSimilar}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-semibold hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            title={canShowSimilar ? "유사 문제 조회" : "임베딩 완료된 문제만 조회 가능"}
+          >
+            <Search className="h-4 w-4" />
+            유사 문제
+          </button>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="문제 수정"
+            title="문제 수정"
+          >
+            <Pencil className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={onDelete}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-destructive hover:text-white"
             aria-label="문제 삭제"
+            title="문제 삭제"
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -597,13 +677,75 @@ function QuestionItem({
       </div>
 
       <p className="mt-3 text-sm leading-6 text-muted-foreground">{question.explanation}</p>
-
-      {expanded && (
-        <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-neutral-950 p-3 text-xs leading-5 text-neutral-50">
-          {question.embeddingText}
-        </pre>
-      )}
     </article>
+  );
+}
+
+function SingleEmbedDialog({
+  target,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  target: QuestionResponse | null;
+  loading: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!target) return null;
+  const isReEmbed = target.embeddingStatus === "COMPLETED";
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/35 px-4 py-10"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !loading) onCancel();
+      }}
+    >
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+        <div className="border-b border-border bg-muted/35 px-5 py-4">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Embedding</p>
+          <h2 className="mt-1 text-lg font-bold tracking-tight">
+            {isReEmbed ? "이 문제를 다시 임베딩할까요?" : "이 문제를 임베딩 벡터로 변환할까요?"}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            아래 텍스트를 OpenAI text-embedding-3-small 모델로 1536차원 벡터로 변환합니다.
+          </p>
+        </div>
+
+        <div className="space-y-3 p-5">
+          <div>
+            <p className="text-xs font-bold text-muted-foreground">대상 문제</p>
+            <p className="mt-1 text-sm font-semibold">{target.question}</p>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-muted-foreground">변환할 embeddingText</p>
+            <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-neutral-950 p-3 text-xs leading-5 text-neutral-50">
+              {target.embeddingText}
+            </pre>
+          </div>
+
+          <div className="mt-2 flex justify-end gap-2 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={loading}
+              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={loading}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              임베딩 변환
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -678,6 +820,135 @@ function SmallInput({
       placeholder={placeholder}
       className={`h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring ${className}`}
     />
+  );
+}
+
+function SimilarQuestionsDialog({
+  source,
+  results,
+  loading,
+  onClose,
+}: {
+  source: QuestionResponse | null;
+  results: SimilarQuestion[];
+  loading: boolean;
+  onClose: () => void;
+}) {
+  if (!source) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/35 px-4 py-10"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-6xl overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+        <div className="flex items-center justify-between border-b border-border bg-muted/35 px-5 py-4">
+          <div>
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Similar Questions</p>
+            <h2 className="mt-1 text-lg font-bold tracking-tight">유사 문제 조회</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              원본 문제의 embedding_vector와 코사인 유사도 기준 상위 {results.length}건입니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent"
+            aria-label="닫기"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+          <section className="rounded-lg border border-border bg-muted/20 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">원본 문제</p>
+            <SimilarSummary question={source} />
+          </section>
+
+          <section className="rounded-lg border border-border bg-background">
+            <div className="border-b border-border px-4 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">유사 문제 ({results.length})</p>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-2">
+              {loading ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  검색 중
+                </div>
+              ) : results.length === 0 ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  유사 문제가 없습니다.
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {results.map((item, idx) => (
+                    <li key={item.question.id} className="rounded-md border border-border bg-muted/20 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                            {idx + 1}
+                          </span>
+                          <SimilarBadges question={item.question} />
+                        </div>
+                        <span className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs font-bold tabular-nums">
+                          {(item.similarity * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold leading-6">{item.question.question}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.question.explanation}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SimilarSummary({ question }: { question: QuestionResponse }) {
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <SimilarBadges question={question} />
+      </div>
+      <h3 className="mt-3 text-sm font-bold leading-6">{question.question}</h3>
+      {question.choices.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+          {question.choices.map((c, i) => (
+            <li key={`${c}-${i}`}>
+              {i + 1}. {c}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 rounded-md border border-border bg-background px-2.5 py-2">
+        <p className="text-[10px] font-bold uppercase text-muted-foreground">정답</p>
+        <p className="mt-0.5 text-sm font-semibold">{question.answer}</p>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-muted-foreground">{question.explanation}</p>
+    </>
+  );
+}
+
+function SimilarBadges({ question }: { question: QuestionResponse }) {
+  const tone = subjects.find((s) => s.value === subjectGroup(question.subject))?.tone ?? "border-border bg-muted text-foreground";
+  return (
+    <>
+      <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${tone}`}>
+        {subjectLabel(question.subject)}
+      </span>
+      <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold">
+        {question.category} / {question.topic}
+      </span>
+      <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+        {difficultyLabel(question.difficulty)}
+      </span>
+    </>
   );
 }
 
@@ -873,32 +1144,5 @@ function UnitTree({
         })}
       </div>
     </aside>
-  );
-}
-
-function FilterSelect({
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-  placeholder: string;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-    >
-      <option value="">{placeholder}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
   );
 }

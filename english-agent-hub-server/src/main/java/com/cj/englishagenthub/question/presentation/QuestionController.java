@@ -74,6 +74,21 @@ public class QuestionController {
         return questionEmbeddingService.embedPending(limit);
     }
 
+    @PostMapping("/{id}/embed")
+    @Operation(summary = "문제 단건 임베딩")
+    public QuestionResponse embedOne(@PathVariable String id) {
+        return questionEmbeddingService.embedOne(id);
+    }
+
+    @GetMapping("/{id}/similar")
+    @Operation(summary = "유사 문제 Top N 조회")
+    public List<QuestionEmbeddingService.SimilarQuestion> findSimilar(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        return questionEmbeddingService.findSimilar(id, limit);
+    }
+
     @GetMapping("/embedding-status")
     @Operation(summary = "임베딩 상태별 문제 수 조회")
     public QuestionEmbeddingService.EmbeddingCounts embeddingStatus() {

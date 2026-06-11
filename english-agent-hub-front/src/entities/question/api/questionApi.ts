@@ -43,6 +43,11 @@ export type EmbeddingStatusResponse = {
   failed: number;
 };
 
+export type SimilarQuestion = {
+  question: QuestionResponse;
+  similarity: number;
+};
+
 export type QuestionUpsertRequest = {
   subject: QuestionSubject;
   category: string;
@@ -82,6 +87,12 @@ export const questionApi = {
     api
       .post<EmbeddingBatchResult>(`/api/questions/embed-pending`, undefined, { params: { limit } })
       .then((r) => r.data),
+  embedOne: (id: string) =>
+    api.post<QuestionResponse>(`/api/questions/${id}/embed`).then((r) => r.data),
   embeddingStatus: () =>
     api.get<EmbeddingStatusResponse>(`/api/questions/embedding-status`).then((r) => r.data),
+  findSimilar: (id: string, limit = 10) =>
+    api
+      .get<SimilarQuestion[]>(`/api/questions/${id}/similar`, { params: { limit } })
+      .then((r) => r.data),
 };
